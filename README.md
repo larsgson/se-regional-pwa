@@ -1,73 +1,60 @@
-# bw-pwa
+# se-regional-pwa
 
 A SvelteKit PWA that reads frozen-Proskomma (`.pkf`) Scripture content
-fetched from [scriptureearth.org](https://scriptureearth.org), with
-region → language → book → chapter navigation and per-language fonts and
-styling. Audio, video, and inline illustrations are referenced directly
-from Scripture Earth — no media is stored in this repo.
+for the ~139 Mexican-language deployments on
+[scriptureearth.org](https://scriptureearth.org), with region → language
+→ book → chapter navigation and per-language fonts and styling. Audio,
+video, and inline illustrations are referenced directly from Scripture
+Earth — no media is stored in this repo.
 
-The current data set is the ~139 Mexican-language deployments on Scripture
-Earth, subdivided by language family via `config/regions.conf`.
+The **data** (pkf archives, catalogs, fonts, per-language CSS) lives in
+a separate repository, `se-regional-data`, and is published there as
+GitHub Release tarballs. This repository contains only the app code —
+the data is pulled in at build time by `scripts/fetch-data-release.mjs`.
+
+Of the 139 MX ISOs, 134 are redistributable under CC BY-NC-ND 4.0; 5
+(`cya`, `top`, `hch`, `poi`, `nlv`) are excluded from the public data
+release. Authoritative inventory: `config/licenses.json`.
 
 ## Prerequisites
 
-- **Node.js** ≥ 20 (for SvelteKit and the `.mjs` scripts)
-- **Python** ≥ 3.10 (stdlib-only; no pip install required)
-- Internet access to `scriptureearth.org` during setup
+- **Node.js** ≥ 20
+- **pnpm** ≥ 9 (`npm install -g pnpm` or `corepack enable`)
+- **tar** with zstd support (GNU tar ≥ 1.31 or bsdtar w/ libzstd — both
+  Ubuntu and recent macOS ship this by default)
 
 ## First-time setup
 
-Clone, then from the repo root:
-
 ```bash
-# 1. Install JS dependencies
-npm install
-
-# 2. Download pkfs + catalogs + per-language stylesheets + fonts
-#    (--country MX pulls every Mexican-language SAB deployment;
-#     about 139 languages, ~400 MB before dedup.)
-python3 scripts/fetch_pkf.py --country MX --workers 8
-
-# 3. Consolidate duplicated fonts into a shared pool and emit each
-#    language's tiny delta.css (~400–2800 B per language)
-python3 scripts/dedupe_assets.py
-
-# 4. (Optional) Map inline figure filenames to their hashed Scripture
-#    Earth URLs — only a couple of Mexican languages have figures
-node scripts/map_figures.mjs
-
-# 5. (Optional) Extract per-chapter audio and video manifests from each
-#    deployment's JS bundle (~100 languages have video, ~90 have audio)
-node scripts/map_media.mjs
-
-# 6. Expose the fetched data under the static/ tree so the PWA can serve it
-ln -s ../data/pkf static/pkf
-
-# 7. Start the dev server
-npm run dev         # http://localhost:5173
-# or build the static site
-npm run build && npm run preview
+pnpm install
+pnpm dev
 ```
 
-Re-running any of the scripts later is safe — they're idempotent. Re-run
-`map_figures.mjs` / `map_media.mjs` if Scripture Earth redeploys (they
-regenerate the hash-based URL maps).
+The `prebuild` hook (`scripts/fetch-data-release.mjs`) will pull the
+latest `se-regional-data` GitHub Release and extract it to `data/pkf/`
+on first `pnpm build`. For local dev against data you already have, the
+hook skips gracefully — just run `pnpm dev`.
 
-## Adding more languages / countries
+### Build-time environment variables
 
-`scripts/fetch_pkf.py` accepts positional ISO codes, a newline-separated
-file, or a country code:
+| Variable | Purpose |
+|---|---|
+| `DATA_REPO` | `<owner>/<repo>` of the data repo. |
+| `GITHUB_TOKEN` | Token with read access to `DATA_REPO` (required if private). |
+| `DATA_RELEASE_TAG` | Pin a specific release tag. Defaults to `latest`. |
+| `SKIP_DATA_FETCH` | Set to `1` to skip the prebuild fetch entirely (use when you already have `data/pkf/`). |
 
-```bash
-python3 scripts/fetch_pkf.py zai mxt trc nch
-python3 scripts/fetch_pkf.py --iso-file lists/extra.txt
-python3 scripts/fetch_pkf.py --country GT
-```
+See `.env.example`.
 
-After any new fetch, re-run `dedupe_assets.py`, optionally `map_figures.mjs`
-and `map_media.mjs`, and update `config/regions.conf` so new languages are
-assigned to a region (unassigned ones fall into an **Unclassified** bucket
-in the UI automatically).
+## Development scripts
+
+- `pnpm dev` — dev server with HMR
+- `pnpm build` — static build to `build/` via `@sveltejs/adapter-static`
+  (runs `prebuild` first)
+- `pnpm preview` — serve the built output
+- `pnpm check` — `svelte-check` + TypeScript
+- `pnpm test` — `vitest run`
+- `pnpm test:watch` — vitest in watch mode
 
 ## Project layout
 
@@ -75,12 +62,9 @@ in the UI automatically).
 config/                        Human-edited configuration
   regions.conf                 Region → ISO-code layout, Mexico-only in UI
   figure_captions.json         Per-language figure-caption display mode
-scripts/                       One-shot fetch / transform scripts
-  fetch_pkf.py                 Scrape .pkf + catalog + CSS + fonts from SE
-  dedupe_assets.py             Consolidate fonts + emit per-iso delta.css
-  map_figures.mjs              Map \fig filenames to hashed SE image URLs
-  map_media.mjs                Extract per-chapter audio + video manifest
-  probe_*.mjs                  Development probes (kept for reference)
+  licenses.json                Per-ISO text-license inventory
+scripts/
+  fetch-data-release.mjs       Prebuild: pull data/pkf from se-regional-data release
 src/                           SvelteKit app
   lib/data/                    Region parsing, info.json loader, caption-mode config
   lib/reader/                  Proskomma thaw, Sofria render, Reader component
@@ -88,64 +72,42 @@ src/                           SvelteKit app
   app.html, app.css, app.d.ts
 static/
   manifest.webmanifest         PWA manifest
-  pkf/                         Symlink to ../data/pkf (not in git)
-data/                          Generated; not in git
+  pkf/                         Symlink to ../data/pkf (recreated by fetch-data-release.mjs)
+data/                          Populated at build time; not in git
   pkf/<iso>/                   Per-language pkf, catalog, info.json, styles/
-  pkf/_fonts/                  Shared font pool (32 unique binaries across Mexico)
+  pkf/_fonts/                  Shared font pool (~32 unique binaries across Mexico)
   pkf/manifest.json            Summary of fetched languages
-  pkf/unclassified.txt         ISOs not in any region in regions.conf
+netlify.toml                   Netlify build + cache-plugin config
+vitest.config.ts               Test runner (scoped to src/**)
 ```
 
 ## What's *not* in the repo
 
-- `/data` — populated by the scripts above (~170 MB for Mexico)
-- `/example` — reference copies of the upstream SAB-PWA project and a
-  related Astro wiki, kept locally for study; re-clone from the original
-  GitHub sources (`sillsdev/appbuilder-pwa`, `larsgson/bibel-wiki`) if
-  you want them back
+- `/data` — pulled in by `fetch-data-release.mjs`
 - `/node_modules`, `/.svelte-kit`, `/build` — build artefacts
 - `/.claude`, `/.vscode`, `/.idea` — per-user editor / tooling state
 
-## Data sources and remote dependencies
+## Deployment (Netlify)
 
-All scripture content, fonts, illustrations, audio, and video are fetched
-from or referenced at Scripture Earth
-(`https://scriptureearth.org/data/<iso>/sab/<iso>/`). The PWA loads:
+`netlify.toml` is wired for Netlify out of the box:
 
-- `.pkf` archives → thawed into a browser-side Proskomma instance
-- catalog JSON → book list + per-chapter verse numbering
-- `styles/delta.css` → per-language `@font-face` declarations + scoped
-  container rule
-- Fonts from the shared pool (`static/pkf/_fonts/`)
-- Figure images directly from Scripture Earth (cross-origin `<img>`)
-- Audio MP3s directly from Scripture Earth
-  (`https://www.scriptureearth.org/data/<iso>/audio/<file>.mp3`)
-- Videos: YouTube / ArcLight-Jesus-Film iframes, HLS via `hls.js` (lazy
-  chunk, loads on first HLS click), direct `.mp4` via `<video>`
+- `pnpm build` is the build command; `build/` is the publish directory.
+- `netlify-plugin-cache` persists `data/pkf/` between builds so we only
+  re-download when the release tag changes.
+- Long-cache immutable headers on `/pkf/*` (all hashed filenames).
 
-Licensing: each language's scripture content has its own rights holder
-(typically SIL or the translation team). Respect their terms if you
-redistribute.
+Set `DATA_REPO` and `GITHUB_TOKEN` in Netlify's *Site settings →
+Environment variables*. Optionally pin `DATA_RELEASE_TAG` to a known
+release for reproducible builds.
 
-## Development scripts
+The build is a **purely static site**: `build/` is plain HTML, CSS, and
+JS — no Node server is needed to run it. Every route is pre-rendered
+at build time (1 root + 10 regions + 139 per-ISO pages = 150 HTML
+files). Other static hosts (Cloudflare Pages, S3 + CloudFront, nginx)
+work just as well, but you'll need to run `fetch-data-release.mjs` in
+their build step or upload `build/` + `data/pkf/` yourself.
 
-- `npm run dev` — dev server with HMR
-- `npm run build` — static build to `build/` via `@sveltejs/adapter-static`
-- `npm run preview` — serve the built output
-- `npm run check` — `svelte-check` + TypeScript
-
-## Deployment
-
-The build is a **purely static site**: `build/` contains plain HTML, CSS,
-and JS files — no Node server is needed to run it. You can drop the
-contents of `build/` (plus `data/pkf/` at the URL path `/pkf/`, since
-that's what `static/pkf` symlinks to) onto any static host — GitHub
-Pages, Netlify, Cloudflare Pages, S3 + CloudFront, an nginx container,
-etc.
-
-Every route is pre-rendered at build time: the region list, the 10
-region pages, and the 139 per-ISO pages (150 HTML files in total). On
-first visit the browser downloads:
+On first visit the browser downloads:
 
 - the pre-rendered HTML for the current route (~10 KB)
 - shared framework + router chunks (~60–80 KB gzipped total)
@@ -156,16 +118,34 @@ first visit the browser downloads:
 Time-to-first-paint on a mid-tier phone on 3G: ~200–400 ms. Time-to-see
 scripture text: ~1–2 s (dominated by the pkf thaw).
 
+## Data sources and licensing
+
+All scripture content, fonts, illustrations, audio, and video are
+fetched from or referenced at Scripture Earth
+(`https://scriptureearth.org/data/<iso>/sab/<iso>/`).
+
+Per-ISO licenses are recorded in `config/licenses.json`:
+
+- **134 MX languages**: `CC-BY-NC-ND-4.0` (see
+  [creativecommons.org/licenses/by-nc-nd/4.0](https://creativecommons.org/licenses/by-nc-nd/4.0/))
+- **5 MX languages** excluded from the public data release:
+  - `cya` — "Usado con permiso" (permission-only, not CC)
+  - `top` — "Todos los derechos reservados" in the Texto block
+  - `hch`, `poi` — bundle Biblica NVI (proprietary)
+  - `nlv` — "Texto en proceso de finalizar" (provisional)
+
+The license covers the scripture TEXT (pkf data) only. Images, audio,
+and video referenced by SE URL carry their own per-asset licenses
+(Jesus Film Project, LUMO, Sweet Publishing, Inspirational Films,
+Hosanna, etc.) — most are permission-only or all-rights-reserved.
+
 ## Known limits
 
-- **zpl figure placeholders** — zpl's source USFM has 2 `\fig` markers in
-  Acts that reference a Classical Bible Illustrations plate
+- **zpl figure placeholders** — zpl's source USFM has 2 `\fig` markers
+  in Acts that reference a Classical Bible Illustrations plate
   (`CN01953B.TIF`) which was never uploaded to Scripture Earth. The
-  reader correctly shows `[image: CN01953B.TIF]` because the image
-  genuinely doesn't exist in zpl's deployment — this is a source-data
-  gap, not a mapping we can fix. The `V2022…jpg` images on SE's zpl
-  deployment are unrelated: they're YouTube-video thumbnails for the 43
-  Juan clips, placed via the media manifest (which works).
-- **Figure captions** are `hide` by default (see `config/figure_captions.json`)
-  because illustration packs often ship English stock text even in
-  minority-language Bibles; per-language opt-in via `heuristic` or `show`.
+  reader silently omits them, matching SE's own graceful fallback.
+- **Figure captions** are `hide` by default (see
+  `config/figure_captions.json`) because illustration packs often ship
+  English stock text even in minority-language Bibles; per-language
+  opt-in via `heuristic` or `show`.

@@ -1,10 +1,9 @@
 [build]
-  command = "npm run build"
+  command = "pnpm build"
   publish = "build"
 
 [build.environment]
   NODE_VERSION = "20"
-  NPM_FLAGS = "--no-audit --no-fund"
   # DATA_REPO          → set in Netlify UI (e.g. "larsgson/se-regional-data")
   # GITHUB_TOKEN       → set in Netlify UI (PAT with `repo` scope, private data repo access)
   # DATA_RELEASE_TAG   → optional; defaults to "latest"
