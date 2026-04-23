@@ -8,9 +8,11 @@ video, and inline illustrations are referenced directly from Scripture
 Earth — no media is stored in this repo.
 
 The **data** (pkf archives, catalogs, fonts, per-language CSS) lives in
-a separate repository, `se-regional-data`, and is published there as
-GitHub Release tarballs. This repository contains only the app code —
-the data is pulled in at build time by `scripts/fetch-data-release.mjs`.
+a separate public repository, [`se-regional-data`](https://github.com/larsgson/se-regional-data),
+and is published there as GitHub Release tarballs. This repository
+contains only the app code — the data is pulled in at build time by
+`scripts/fetch-data.mjs` via the stable
+`releases/latest/download/index.json` alias, with sha256 verification.
 
 Of the 139 MX ISOs, 134 are redistributable under CC BY-NC-ND 4.0; 5
 (`cya`, `top`, `hch`, `poi`, `nlv`) are excluded from the public data
@@ -30,18 +32,24 @@ pnpm install
 pnpm dev
 ```
 
-The `prebuild` hook (`scripts/fetch-data-release.mjs`) will pull the
-latest `se-regional-data` GitHub Release and extract it to `data/pkf/`
-on first `pnpm build`. For local dev against data you already have, the
-hook skips gracefully — just run `pnpm dev`.
+The `prebuild` hook (`scripts/fetch-data.mjs`) will pull the latest
+`se-regional-data` GitHub Release on `pnpm build`: it resolves the
+`releases/latest/download/index.json` alias, downloads the tarball +
+manifest + licenses.json named in that index, verifies the tarball's
+sha256, and atomic-swaps it into `data/pkf/`. For local dev against data
+you already have, the hook skips gracefully — just run `pnpm dev`, or
+pull the data on demand with `pnpm fetch:data`.
 
 ### Build-time environment variables
 
+All optional — the data repo is public so a clean build works with no
+env vars set.
+
 | Variable | Purpose |
 |---|---|
-| `DATA_REPO` | `<owner>/<repo>` of the data repo. |
-| `GITHUB_TOKEN` | Token with read access to `DATA_REPO` (required if private). |
-| `DATA_RELEASE_TAG` | Pin a specific release tag. Defaults to `latest`. |
+| `DATA_REPO` | Override data-repo slug. Default `larsgson/se-regional-data`. |
+| `DATA_RELEASE_TAG` | Pin a specific release tag. Default `latest` (resolved via the stable alias). |
+| `GITHUB_TOKEN` | Rate-limit headroom on shared CI. Not required. |
 | `SKIP_DATA_FETCH` | Set to `1` to skip the prebuild fetch entirely (use when you already have `data/pkf/`). |
 
 See `.env.example`.
@@ -55,6 +63,7 @@ See `.env.example`.
 - `pnpm check` — `svelte-check` + TypeScript
 - `pnpm test` — `vitest run`
 - `pnpm test:watch` — vitest in watch mode
+- `pnpm fetch:data` — pull the latest `se-regional-data` release into `data/pkf/` (also runs automatically as `prebuild`)
 
 ## Project layout
 
@@ -64,7 +73,7 @@ config/                        Human-edited configuration
   figure_captions.json         Per-language figure-caption display mode
   licenses.json                Per-ISO text-license inventory
 scripts/
-  fetch-data-release.mjs       Prebuild: pull data/pkf from se-regional-data release
+  fetch-data.mjs               Prebuild: pull data/pkf from se-regional-data release
 src/                           SvelteKit app
   lib/data/                    Region parsing, info.json loader, caption-mode config
   lib/reader/                  Proskomma thaw, Sofria render, Reader component
