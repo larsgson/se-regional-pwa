@@ -1,0 +1,7 @@
+{
+    "_comment": "Per-language display mode for figure captions. Modes: 'show' (always visible), 'hide' (never visible), 'heuristic' (visible unless the caption text looks like English — detected via common English stopwords). Any ISO not listed here uses default_mode. Rationale: the Lumo / Sweet Publishing / RG illustration packs shipped through Scripture App Builder often carry English stock captions even in minority-language Bibles, while a handful of translators do provide target-language captions. The heuristic mode lets us show the translated ones and suppress the English leakages without per-language manual tagging.",
+    "default_mode": "hide",
+    "languages": {
+        "zpl": "heuristic"
+    }
+}

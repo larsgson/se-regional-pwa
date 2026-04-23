@@ -1,0 +1,31 @@
+[build]
+  command = "npm run build"
+  publish = "build"
+
+[build.environment]
+  NODE_VERSION = "20"
+  NPM_FLAGS = "--no-audit --no-fund"
+  # DATA_REPO          → set in Netlify UI (e.g. "larsgson/se-regional-data")
+  # GITHUB_TOKEN       → set in Netlify UI (PAT with `repo` scope, private data repo access)
+  # DATA_RELEASE_TAG   → optional; defaults to "latest"
+
+# Cache the extracted data between builds so we only re-download when the
+# release tag actually changes. The prebuild script compares `data/pkf/.fetched-tag`
+# against the remote tag and short-circuits when they match.
+[[plugins]]
+  package = "netlify-plugin-cache"
+  [plugins.inputs]
+    paths = ["data/pkf"]
+
+# Long-cache immutable pkf / catalog / font / CSS assets (hashed filenames).
+[[headers]]
+  for = "/pkf/*"
+  [headers.values]
+    Cache-Control = "public, max-age=31536000, immutable"
+
+# Pkf archives are fflate-packed; hint content-type so browsers don't sniff.
+[[headers]]
+  for = "/pkf/*.pkf"
+  [headers.values]
+    Content-Type = "application/octet-stream"
+    Cache-Control = "public, max-age=31536000, immutable"

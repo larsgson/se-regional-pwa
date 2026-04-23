@@ -1,0 +1,47 @@
+# Dependencies
+/node_modules
+
+# Build output and caches
+/.svelte-kit
+/build
+/package
+vite.config.*.timestamp*
+
+# Generated / downloaded content (populated at build time by
+# scripts/fetch-data-release.mjs, which pulls the latest Release from the
+# private se-regional-data repo). Not part of the repo.
+/data
+/static/pkf
+
+# Reference code from other repos — kept locally for reference, not tracked.
+# Populate by cloning or copying the upstream SAB-PWA / bibel-wiki repos if
+# you want them back.
+/example
+
+# Per-user / workspace metadata
+/.claude
+/.vscode
+/.idea
+
+# Env files
+.env
+.env.*
+!.env.example
+
+# Editor / OS cruft
+.DS_Store
+*.swp
+*~
+
+# Python
+__pycache__
+*.pyc
+*.pyo
+.mypy_cache
+.ruff_cache
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*

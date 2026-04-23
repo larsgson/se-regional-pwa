@@ -1,0 +1,761 @@
+<script lang="ts">
+    import { onMount, onDestroy } from 'svelte';
+    import { browser } from '$app/environment';
+    import { fetchCatalog, chapterCount, type Catalog, type CatalogDoc } from './catalog';
+    import { loadDocSet, isLoaded } from './store';
+    import { fetchSofria, renderSofria, type RenderedChapter, type CaptionMode } from './sofria';
+    import type { MediaManifest, VideoEntry, AudioEntry } from '$lib/data/pkfInfo';
+    import { settings } from './settings';
+    import SettingsPanel from './SettingsPanel.svelte';
+    import AudioPlayer from './AudioPlayer.svelte';
+    import ReaderTopBar from './ReaderTopBar.svelte';
+    import { getProskomma } from './store';
+    import { loadGlossary, lookup as lookupGlossary, type Glossary } from './glossary';
+    import './reader.css';
+
+    type Props = {
+        iso: string;          // e.g. "zai"
+        docSetId: string;     // e.g. "zai_zai"
+        pkfUrl: string;       // e.g. "/pkf/zai/zai_zai.0HgVnSWZ.pkf"
+        catalogUrl: string;   // e.g. "/pkf/zai/zai_zai.C3ggCijo.json"
+        styleUrl?: string | null;                      // e.g. "/pkf/zai/styles/delta.css"
+        figureUrls?: Record<string, string>;           // filename -> hosted URL
+        captionMode?: CaptionMode;                     // from config/figure_captions.json
+        media?: MediaManifest;                         // per-iso video + audio manifest
+    };
+    let {
+        iso,
+        docSetId,
+        pkfUrl,
+        catalogUrl,
+        styleUrl,
+        figureUrls = {},
+        captionMode = 'hide',
+        media
+    }: Props = $props();
+
+    let catalog = $state<Catalog | null>(null);
+    let loadError = $state<string | null>(null);
+
+    let currentBook = $state<CatalogDoc | null>(null);
+    let currentChapter = $state<number>(1);
+    let rendered = $state<RenderedChapter | null>(null);
+    let rendering = $state(false);
+    let renderError = $state<string | null>(null);
+    let pkfLoaded = $state(false);
+
+    const LINK_ID = 'bw-lang-css';
+    let linkEl: HTMLLinkElement | null = null;
+
+    onMount(async () => {
+        if (styleUrl) {
+            // Swap in this language's CSS bundle. Any previously-injected link with
+            // the same id gets removed first so only one language's styles are live.
+            const existing = document.getElementById(LINK_ID);
+            if (existing) existing.remove();
+            linkEl = document.createElement('link');
+            linkEl.rel = 'stylesheet';
+            linkEl.href = styleUrl;
+            linkEl.id = LINK_ID;
+            linkEl.dataset.iso = iso;
+            document.head.appendChild(linkEl);
+        }
+        document.addEventListener('click', onGlobalClick);
+        document.addEventListener('keydown', onGlobalKey);
+        loadBookmarks();
+        try {
+            catalog = await fetchCatalog(catalogUrl);
+        } catch (e) {
+            loadError = e instanceof Error ? e.message : String(e);
+        }
+    });
+
+    onDestroy(() => {
+        if (!browser) return;
+        if (linkEl && linkEl.parentNode) linkEl.parentNode.removeChild(linkEl);
+        linkEl = null;
+        document.removeEventListener('click', onGlobalClick);
+        document.removeEventListener('keydown', onGlobalKey);
+    });
+
+    async function ensurePkf() {
+        if (pkfLoaded || isLoaded(docSetId)) {
+            pkfLoaded = true;
+            return;
+        }
+        await loadDocSet(docSetId, pkfUrl);
+        pkfLoaded = true;
+    }
+
+    async function openBookChapter(book: CatalogDoc, ch: number) {
+        currentBook = book;
+        currentChapter = ch;
+        rendered = null;
+        renderError = null;
+        popover = null;
+        rendering = true;
+        try {
+            await ensurePkf();
+            const sofria = fetchSofria(docSetId, book.bookCode, ch);
+            // Videos with verse-level placement are emitted inline by the
+            // renderer; the rest go in the top strip above the chapter body.
+            // Settings toggles suppress illustrations and/or videos entirely.
+            const inlineForRender = $settings.showVideos
+                ? (media?.videos.filter(
+                      (v) =>
+                          v.placement?.bookCode === book.bookCode &&
+                          v.placement?.chapter === ch &&
+                          v.placement?.verse != null
+                  ) ?? [])
+                : [];
+            const figsForRender = $settings.showIllustrations ? figureUrls : {};
+            rendered = renderSofria(sofria, figsForRender, captionMode, inlineForRender);
+        } catch (e) {
+            renderError = e instanceof Error ? e.message : String(e);
+        } finally {
+            rendering = false;
+        }
+    }
+
+    function closeReader() {
+        currentBook = null;
+        rendered = null;
+        renderError = null;
+    }
+
+    let chapterList = $derived(
+        currentBook ? Array.from({ length: chapterCount(currentBook) }, (_, i) => i + 1) : []
+    );
+
+    /** Format-mode tabs (Tier 2): Text is the default; Audio / Video appear
+     *  only when the current chapter actually has audio / video entries. */
+    type ReaderMode = 'text' | 'audio' | 'video';
+    let mode = $state<ReaderMode>('text');
+    function setMode(m: ReaderMode) {
+        mode = m;
+    }
+    // Fall back to Text when the current chapter doesn't have the active
+    // mode's media, or when settings hide the corresponding format.
+    $effect(() => {
+        if (mode === 'audio' && audioForChapter.length === 0) mode = 'text';
+        if (mode === 'video' && (videosForChapter.length === 0 || !$settings.showVideos))
+            mode = 'text';
+    });
+    function prevChapter() {
+        if (!currentBook || currentChapter <= 1) return;
+        openBookChapter(currentBook, currentChapter - 1);
+    }
+    function nextChapter() {
+        if (!currentBook || currentChapter >= chapterList.length) return;
+        openBookChapter(currentBook, currentChapter + 1);
+    }
+
+    /** Tier 3 — floating popover for footnote / xref callers and glossary
+     *  terms. Positioned via getBoundingClientRect of the anchor element. */
+    type Popover =
+        | { kind: 'note' | 'xref'; idx: number; top: number; left: number }
+        | {
+              kind: 'glossary';
+              term: string;
+              definition: string;
+              top: number;
+              left: number;
+          };
+    let popover = $state<Popover | null>(null);
+    let popoverEl: HTMLDivElement | null = $state(null);
+
+    function anchorPos(anchor: HTMLElement): { top: number; left: number } {
+        const rect = anchor.getBoundingClientRect();
+        const top = rect.bottom + window.scrollY + 6;
+        const left = Math.min(
+            Math.max(rect.left + window.scrollX - 10, 8),
+            window.innerWidth + window.scrollX - 400
+        );
+        return { top, left };
+    }
+    function openPopover(kind: 'note' | 'xref', idx: number, anchor: HTMLElement) {
+        popover = { kind, idx, ...anchorPos(anchor) };
+    }
+    function openGlossaryPopover(term: string, anchor: HTMLElement) {
+        if (!glossaryLoaded) loadGlossaryOnce();
+        const entry = lookupGlossary(glossary, term);
+        if (!entry) return; // silent if no glossary entry
+        popover = {
+            kind: 'glossary',
+            term: entry.term,
+            definition: entry.definition,
+            ...anchorPos(anchor)
+        };
+    }
+    function closePopover() {
+        popover = null;
+    }
+
+    /** Glossary map — lazy-loaded on first glossary-term click. */
+    let glossary = $state<Glossary | null>(null);
+    let glossaryLoaded = $state(false);
+    function loadGlossaryOnce() {
+        if (glossaryLoaded) return;
+        glossaryLoaded = true;
+        // Needs the pkf to be thawed first; assume caller runs after ensurePkf().
+        if (!isLoaded(docSetId)) return;
+        glossary = loadGlossary(getProskomma(), docSetId);
+    }
+
+    /** Settings drawer visibility toggle. */
+    let showSettings = $state(false);
+
+    // ---- top-bar search (in-chapter find) ----------------------------------
+    let searchActive = $state(false);
+    let searchQuery = $state('');
+    function toggleSearch() {
+        searchActive = !searchActive;
+        if (!searchActive) searchQuery = '';
+    }
+    function onSearchInput(q: string) {
+        searchQuery = q;
+    }
+    /** Wrap every occurrence of query in <mark class="search-hit"> in text
+     *  segments (between HTML tags) only, without touching attribute values
+     *  or tag names. Keeps the existing HTML structure intact. */
+    function addHighlights(html: string, q: string): string {
+        const query = q.trim();
+        if (!query) return html;
+        const esc = query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        const re = new RegExp(esc, 'gi');
+        return html.replace(/>([^<]+)</g, (_m, text: string) => {
+            return `>${text.replace(re, (m) => `<mark class="search-hit">${m}</mark>`)}<`;
+        });
+    }
+    let displayHtml = $derived(
+        rendered ? addHighlights(rendered.html, searchActive ? searchQuery : '') : ''
+    );
+
+    // ---- top-bar share (copy URL) ------------------------------------------
+    let shareFlashing = $state(false);
+    async function copyShareLink() {
+        if (!browser) return;
+        const url = window.location.href;
+        try {
+            if (navigator.share) {
+                await navigator.share({ title: document.title, url });
+            } else {
+                await navigator.clipboard.writeText(url);
+            }
+        } catch {
+            /* user cancelled or clipboard disallowed — silent */
+        }
+        shareFlashing = true;
+        setTimeout(() => (shareFlashing = false), 1400);
+    }
+
+    // ---- top-bar audio toggle ----------------------------------------------
+    // Clicking ♪ toggles an inline audio bar within the Text view (matches
+    // SE: the icon does not leave the text — it overlays an audio player
+    // above the scripture). Independent from the Audio format tab, which
+    // still gives a dedicated audio-only view.
+    let audioInline = $state(false);
+    function toggleInlineAudio() {
+        if (audioForChapter.length === 0) return;
+        audioInline = !audioInline;
+    }
+
+    // ---- top-bar font size A-/A+ -------------------------------------------
+    const FONT_SIZE_MIN = 14;
+    const FONT_SIZE_MAX = 36;
+    function adjustFontSize(delta: number) {
+        settings.update((s) => ({
+            ...s,
+            fontSize: Math.max(FONT_SIZE_MIN, Math.min(FONT_SIZE_MAX, s.fontSize + delta))
+        }));
+    }
+
+    // ---- top-bar bookmark toggle -------------------------------------------
+    const BOOKMARKS_KEY = 'bw-bookmarks';
+    let bookmarks = $state<Set<string>>(new Set());
+    function loadBookmarks() {
+        if (!browser) return;
+        try {
+            const raw = localStorage.getItem(BOOKMARKS_KEY);
+            if (raw) bookmarks = new Set(JSON.parse(raw));
+        } catch {
+            /* ignore */
+        }
+    }
+    function saveBookmarks() {
+        if (!browser) return;
+        try {
+            localStorage.setItem(BOOKMARKS_KEY, JSON.stringify([...bookmarks]));
+        } catch {
+            /* ignore */
+        }
+    }
+    function bookmarkKey(): string {
+        return currentBook ? `${iso}/${currentBook.bookCode}/${currentChapter}` : '';
+    }
+    let bookmarked = $derived(bookmarkKey() !== '' && bookmarks.has(bookmarkKey()));
+    function toggleBookmark() {
+        const k = bookmarkKey();
+        if (!k) return;
+        const next = new Set(bookmarks);
+        if (next.has(k)) next.delete(k);
+        else next.add(k);
+        bookmarks = next;
+        saveBookmarks();
+    }
+
+    // ---- top-bar title -----------------------------------------------------
+    let topBarTitle = $derived(
+        currentBook
+            ? `${currentBook.toc2 ?? currentBook.toc ?? currentBook.bookCode} ${currentChapter}`
+            : iso
+    );
+    function onGlobalClick(e: MouseEvent) {
+        if (!popover) return;
+        const target = e.target as Node | null;
+        if (popoverEl && target && popoverEl.contains(target)) return;
+        // Ignore clicks on callers — their own handler manages the popover state.
+        if (target instanceof HTMLElement && target.closest('.note-caller, .xref-caller')) return;
+        closePopover();
+    }
+    function onGlobalKey(e: KeyboardEvent) {
+        if (e.key === 'Escape' && popover) closePopover();
+    }
+
+    /** Audio entries attached to the current book+chapter. */
+    let audioForChapter = $derived<AudioEntry[]>(
+        currentBook && media
+            ? media.audio.items.filter(
+                  (a) =>
+                      a.url != null &&
+                      a.bookCode === currentBook!.bookCode &&
+                      a.chapter === currentChapter
+              )
+            : []
+    );
+    /** Videos attached to the current book+chapter. Split by whether they
+     * have a verse-level placement: ones with a verse go inline in the
+     * scripture text (emitted by the Sofria renderer), the rest go in the
+     * top strip above the chapter body. */
+    let videosForChapter = $derived<VideoEntry[]>(
+        currentBook && media
+            ? media.videos.filter(
+                  (v) =>
+                      v.placement?.bookCode === currentBook!.bookCode &&
+                      v.placement?.chapter === currentChapter
+              )
+            : []
+    );
+    let inlineVideos = $derived<VideoEntry[]>(
+        videosForChapter.filter((v) => v.placement?.verse != null)
+    );
+    let topVideos = $derived<VideoEntry[]>(
+        videosForChapter.filter((v) => v.placement?.verse == null)
+    );
+
+    /** Which top-strip video thumbnail has been clicked open; keyed by video.id.
+     * Inline videos (inside {@html}) are handled via imperative DOM replacement
+     * on click so the player element survives re-renders of neighbouring state. */
+    let openedVideos = $state<Set<string>>(new Set());
+    function openVideo(v: VideoEntry) {
+        openedVideos = new Set([...openedVideos, v.id]);
+    }
+
+    /** Attach an HLS .m3u8 stream to a <video> element. Safari plays HLS
+     *  natively; everywhere else dynamically imports hls.js on first use so
+     *  it stays out of the initial bundle. */
+    async function attachHls(videoEl: HTMLVideoElement, url: string) {
+        if (videoEl.canPlayType('application/vnd.apple.mpegurl')) {
+            videoEl.src = url;
+            videoEl.play().catch(() => {});
+            return;
+        }
+        try {
+            const mod = await import('hls.js');
+            const Hls = (mod as { default: typeof import('hls.js').default }).default;
+            if (Hls.isSupported()) {
+                const hls = new Hls();
+                hls.loadSource(url);
+                hls.attachMedia(videoEl);
+                hls.on(Hls.Events.MANIFEST_PARSED, () => videoEl.play().catch(() => {}));
+                (videoEl as HTMLVideoElement & { _hls?: unknown })._hls = hls;
+            } else {
+                videoEl.src = url;
+            }
+        } catch {
+            videoEl.src = url;
+        }
+    }
+
+    /** Build a DOM player element for a video entry. Used both for reactive
+     *  top-strip rendering and for imperative in-text replacement. */
+    function buildPlayerElement(v: VideoEntry): HTMLElement {
+        const wrap = document.createElement('div');
+        wrap.className = 'reader-video-player reader-inline-video-player';
+        if (v.kind === 'hls') {
+            const video = document.createElement('video');
+            video.controls = true;
+            video.autoplay = true;
+            video.setAttribute('playsinline', '');
+            wrap.appendChild(video);
+            attachHls(video, v.onlineUrl);
+        } else if (v.kind === 'file') {
+            const video = document.createElement('video');
+            video.controls = true;
+            video.autoplay = true;
+            video.src = v.onlineUrl;
+            wrap.appendChild(video);
+        } else {
+            const iframe = document.createElement('iframe');
+            iframe.src = v.onlineUrl;
+            iframe.title = v.title || 'video';
+            iframe.width = String(v.width ?? 640);
+            iframe.height = String(v.height ?? 360);
+            iframe.frameBorder = '0';
+            iframe.allow = 'autoplay; encrypted-media; picture-in-picture';
+            iframe.setAttribute('allowfullscreen', '');
+            wrap.appendChild(iframe);
+        }
+        if (v.title) {
+            const title = document.createElement('div');
+            title.className = 'reader-video-title';
+            title.textContent = v.title;
+            wrap.appendChild(title);
+        }
+        return wrap;
+    }
+
+    /** Svelte action that mounts a video player element (iframe for YouTube
+     *  /ArcLight/etc., <video> for HLS and direct files) inside the node it's
+     *  applied to. Used by the top-strip reactive rendering path. */
+    function mountPlayer(node: HTMLElement, v: VideoEntry) {
+        const player = buildPlayerElement(v);
+        node.appendChild(player);
+        return {
+            destroy() {
+                const hls = (player.querySelector('video') as (HTMLVideoElement & { _hls?: { destroy: () => void } }) | null)?._hls;
+                if (hls) hls.destroy();
+                node.replaceChildren();
+            }
+        };
+    }
+
+    /** Click / keydown delegation for the rendered scripture body. Handles:
+     *   - inline video thumbnails → replace in place with a real player
+     *   - footnote callers        → open popover
+     *   - cross-ref callers       → open popover
+     *   - verse-block taps        → toggle verse selection (visual highlight)
+     */
+    function handleBodyClick(e: MouseEvent | KeyboardEvent) {
+        const target = e.target as HTMLElement | null;
+        if (!target) return;
+        const isKey = e.type === 'keydown';
+        if (
+            isKey &&
+            (e as KeyboardEvent).key !== 'Enter' &&
+            (e as KeyboardEvent).key !== ' '
+        )
+            return;
+
+        // Inline video thumbnail
+        const thumb = target.closest<HTMLElement>('.reader-inline-video[data-video-id]');
+        if (thumb) {
+            e.preventDefault();
+            const id = thumb.getAttribute('data-video-id');
+            if (!id) return;
+            const v = inlineVideos.find((x) => x.id === id);
+            if (!v) return;
+            thumb.replaceWith(buildPlayerElement(v));
+            return;
+        }
+
+        // Footnote caller
+        const noteBtn = target.closest<HTMLElement>('.note-caller[data-note-idx]');
+        if (noteBtn) {
+            e.preventDefault();
+            const idx = parseInt(noteBtn.getAttribute('data-note-idx') ?? '', 10);
+            if (Number.isFinite(idx)) openPopover('note', idx, noteBtn);
+            return;
+        }
+
+        // Cross-ref caller
+        const xrefBtn = target.closest<HTMLElement>('.xref-caller[data-xref-idx]');
+        if (xrefBtn) {
+            e.preventDefault();
+            const idx = parseInt(xrefBtn.getAttribute('data-xref-idx') ?? '', 10);
+            if (Number.isFinite(idx)) openPopover('xref', idx, xrefBtn);
+            return;
+        }
+
+        // Glossary term (\w or \k) — lazy-build the glossary map on first use.
+        const termBtn = target.closest<HTMLElement>('.glossary-term[data-term]');
+        if (termBtn) {
+            e.preventDefault();
+            const term = termBtn.getAttribute('data-term') ?? '';
+            if (term) openGlossaryPopover(term, termBtn);
+            return;
+        }
+
+        // Verse-block tap → toggle .selected. Imperative DOM toggle so opened
+        // inline video players are not disturbed by re-renders.
+        const verse = target.closest<HTMLElement>('.verse-block[data-v]');
+        if (verse) {
+            verse.classList.toggle('selected');
+        }
+    }
+</script>
+
+{#if loadError}
+    <div class="alert alert-error text-sm">Failed to load catalog: {loadError}</div>
+{:else if !catalog}
+    <div class="text-sm text-base-content/60">Loading catalog…</div>
+{:else if !currentBook}
+    <section>
+        <h2 class="text-sm font-semibold uppercase tracking-wide text-base-content/60 mb-2">
+            Books ({catalog.documents.length})
+        </h2>
+        <ul class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2">
+            {#each catalog.documents as doc (doc.id)}
+                {@const cc = chapterCount(doc)}
+                <li>
+                    <button
+                        class="w-full text-left p-3 rounded border border-base-300 hover:border-primary hover:bg-base-200 transition-colors"
+                        onclick={() => openBookChapter(doc, 1)}
+                        disabled={cc === 0}
+                    >
+                        <div class="font-mono text-xs text-base-content/50">{doc.bookCode}</div>
+                        <div class="text-sm truncate">
+                            {doc.toc2 ?? doc.toc ?? doc.h ?? doc.bookCode}
+                        </div>
+                        <div class="text-xs text-base-content/60 mt-1">
+                            {cc === 0 ? 'no chapters' : `${cc} ch.`}
+                        </div>
+                    </button>
+                </li>
+            {/each}
+        </ul>
+    </section>
+{:else}
+    <section>
+        <ReaderTopBar
+            title={topBarTitle}
+            searchActive={searchActive}
+            bind:searchQuery
+            onSearchToggle={toggleSearch}
+            onSearchInput={onSearchInput}
+            onShare={copyShareLink}
+            shareFlashing={shareFlashing}
+            hasAudio={audioForChapter.length > 0}
+            audioInline={audioInline}
+            onAudioToggle={toggleInlineAudio}
+            onFontSize={adjustFontSize}
+            bookmarked={bookmarked}
+            onBookmarkToggle={toggleBookmark}
+            onSettings={() => (showSettings = !showSettings)}
+        />
+
+        <div class="flex items-center gap-2 mb-3">
+            <button class="btn btn-sm btn-ghost" onclick={closeReader}>← Books</button>
+            <div class="text-sm">
+                <span class="font-mono">{currentBook.bookCode}</span> ·
+                {currentBook.toc2 ?? currentBook.toc ?? currentBook.h ?? ''}
+            </div>
+        </div>
+
+        <div class="reader-toolbar">
+            <div class="reader-toolbar-left">
+                <button
+                    class="nav-arrow"
+                    type="button"
+                    onclick={prevChapter}
+                    disabled={currentChapter <= 1}
+                    aria-label="Previous chapter"
+                >
+                    ‹
+                </button>
+                <span class="current">
+                    {currentBook.toc2 ?? currentBook.toc ?? currentBook.bookCode}
+                    {currentChapter}
+                </span>
+                <button
+                    class="nav-arrow"
+                    type="button"
+                    onclick={nextChapter}
+                    disabled={currentChapter >= chapterList.length}
+                    aria-label="Next chapter"
+                >
+                    ›
+                </button>
+            </div>
+        </div>
+
+        {#if showSettings}
+            <SettingsPanel onclose={() => (showSettings = false)} />
+        {/if}
+
+        <div class="flex flex-wrap gap-1 mb-4">
+            {#each chapterList as ch (ch)}
+                <button
+                    class="btn btn-xs {ch === currentChapter ? 'btn-primary' : 'btn-ghost'}"
+                    onclick={() => openBookChapter(currentBook!, ch)}
+                >
+                    {ch}
+                </button>
+            {/each}
+        </div>
+
+        {#if audioForChapter.length > 0 || ($settings.showVideos && videosForChapter.length > 0)}
+            <div class="reader-format-tabs">
+                <button
+                    type="button"
+                    class:active={mode === 'text'}
+                    onclick={() => setMode('text')}
+                >
+                    Text
+                </button>
+                {#if audioForChapter.length > 0}
+                    <button
+                        type="button"
+                        class:active={mode === 'audio'}
+                        onclick={() => setMode('audio')}
+                    >
+                        Audio
+                    </button>
+                {/if}
+                {#if $settings.showVideos && videosForChapter.length > 0}
+                    <button
+                        type="button"
+                        class:active={mode === 'video'}
+                        onclick={() => setMode('video')}
+                    >
+                        Video
+                    </button>
+                {/if}
+            </div>
+        {/if}
+
+        <div
+            class="reader-root"
+            data-iso={iso}
+            data-theme={$settings.theme}
+            style={`font-size:${$settings.fontSize}px`}
+        >
+            {#if mode === 'audio' && audioForChapter.length > 0}
+                <div class="reader-media">
+                    {#each audioForChapter as a (a.filename)}
+                        {#if a.url}
+                            <AudioPlayer
+                                src={a.url}
+                                label={`${a.bookCode ?? ''} ${a.chapter ?? ''}`.trim()}
+                            />
+                        {/if}
+                    {/each}
+                </div>
+            {:else if mode === 'video' && videosForChapter.length > 0 && $settings.showVideos}
+                <div class="reader-media">
+                    <div class="reader-videos">
+                        {#each videosForChapter as v (v.id)}
+                            {#if openedVideos.has(v.id)}
+                                <div
+                                    class="reader-video-player"
+                                    use:mountPlayer={v}
+                                ></div>
+                            {:else}
+                                <button
+                                    class="reader-video-thumb"
+                                    type="button"
+                                    onclick={() => openVideo(v)}
+                                    aria-label={`Play ${v.title}`}
+                                    style={v.thumbnailUrl
+                                        ? `background-image:url(${v.thumbnailUrl})`
+                                        : ''}
+                                >
+                                    <span class="reader-video-play" aria-hidden="true">▶</span>
+                                    <span class="reader-video-kind">{v.kind}</span>
+                                    <span class="reader-video-title">{v.title}</span>
+                                </button>
+                            {/if}
+                        {/each}
+                    </div>
+                </div>
+            {/if}
+
+            {#if mode === 'text'}
+                {#if audioInline && audioForChapter.length > 0}
+                    <div class="reader-media reader-media-inline">
+                        {#each audioForChapter as a (a.filename)}
+                            {#if a.url}
+                                <AudioPlayer
+                                    src={a.url}
+                                    label={`${a.bookCode ?? ''} ${a.chapter ?? ''}`.trim()}
+                                />
+                            {/if}
+                        {/each}
+                    </div>
+                {/if}
+                <!-- svelte-ignore a11y_click_events_have_key_events -->
+                <!-- svelte-ignore a11y_no_static_element_interactions -->
+                <div
+                    class="reader-body"
+                    onclick={handleBodyClick}
+                    onkeydown={handleBodyClick}
+                >
+                    {#if rendering}
+                        <div class="text-sm text-base-content/60">Loading chapter…</div>
+                    {:else if renderError}
+                        <div class="alert alert-error text-sm">{renderError}</div>
+                    {:else if rendered}
+                        {@html displayHtml}
+                    {:else}
+                        <div class="text-sm text-base-content/60">No content rendered.</div>
+                    {/if}
+                </div>
+            {/if}
+        </div>
+
+        {#if popover}
+            {#if popover.kind === 'glossary'}
+                <div
+                    class="reader-note-popover"
+                    bind:this={popoverEl}
+                    style={`top:${popover.top}px;left:${popover.left}px`}
+                    role="dialog"
+                    aria-label="Glossary"
+                >
+                    <button
+                        class="close"
+                        type="button"
+                        aria-label="Close"
+                        onclick={closePopover}
+                    >
+                        ×
+                    </button>
+                    <div class="popover-term">{popover.term}</div>
+                    <div class="note-body">{popover.definition}</div>
+                </div>
+            {:else if rendered}
+                {@const pool = popover.kind === 'note' ? rendered.footnotes : rendered.xrefs}
+                {@const entry = pool[popover.idx]}
+                {#if entry}
+                    <div
+                        class="reader-note-popover"
+                        bind:this={popoverEl}
+                        style={`top:${popover.top}px;left:${popover.left}px`}
+                        role="dialog"
+                        aria-label={popover.kind === 'note' ? 'Footnote' : 'Cross-reference'}
+                    >
+                        <button
+                            class="close"
+                            type="button"
+                            aria-label="Close"
+                            onclick={closePopover}
+                        >
+                            ×
+                        </button>
+                        <div class="note-body">{@html entry.html}</div>
+                    </div>
+                {/if}
+            {/if}
+        {/if}
+    </section>
+{/if}
