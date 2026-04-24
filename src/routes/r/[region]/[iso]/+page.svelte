@@ -1,23 +1,33 @@
 <script lang="ts">
     import Reader from '$lib/reader/Reader.svelte';
     import { formatKB } from '$lib/data/pkfInfo';
+    import { displayName, altName } from '$lib/data/languageNames';
 
     let { data } = $props();
 
     const pkfAssets = $derived(data.info?.assets.filter((a) => a.kind === 'pkf') ?? []);
     const totalBytes = $derived(pkfAssets.reduce((s, a) => s + (a.size ?? 0), 0));
+    const primaryName = $derived(displayName(data.iso));
+    const secondaryName = $derived(altName(data.iso));
 </script>
 
 <svelte:head>
-    <title>{data.lang.iso} — {data.region.displayName}</title>
+    <title>{primaryName} — {data.region.displayName}</title>
 </svelte:head>
 
 <header class="mb-6">
-    <h1 class="text-2xl font-bold mb-1">
-        <span class="font-mono">{data.lang.iso}</span>
+    <h1
+        class="text-2xl font-bold mb-1 tracking-tight"
+        style="color:rgb(0,11,99);letter-spacing:-0.01em"
+    >
+        {primaryName}
     </h1>
-    <p class="text-sm text-base-content/70">
-        {data.region.displayName} · {pkfAssets.length} collection{pkfAssets.length === 1 ? '' : 's'} · total {formatKB(totalBytes)}
+    {#if secondaryName}
+        <p class="text-sm" style="color:rgba(0,11,99,0.6)">{secondaryName}</p>
+    {/if}
+    <p class="text-xs mt-1" style="color:rgba(0,11,99,0.55)">
+        <span class="font-mono">{data.iso}</span> · {data.region.displayName} ·
+        {pkfAssets.length} collection{pkfAssets.length === 1 ? '' : 's'} · {formatKB(totalBytes)}
     </p>
 </header>
 
