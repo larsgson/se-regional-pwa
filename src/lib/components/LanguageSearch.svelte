@@ -58,7 +58,7 @@
     }
 
     function select(lang: LangEntry) {
-        goto(`/r/${lang.regionId}/${lang.iso}`);
+        goto(`/${lang.iso}`);
     }
 
     function onKey(e: KeyboardEvent) {

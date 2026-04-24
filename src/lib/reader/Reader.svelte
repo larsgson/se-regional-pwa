@@ -11,6 +11,7 @@
     import ReaderTopBar from './ReaderTopBar.svelte';
     import { getProskomma } from './store';
     import { loadGlossary, lookup as lookupGlossary, type Glossary } from './glossary';
+    import { loadLastPosition, saveLastPosition, resolvePosition, saveLastIso } from './position';
     import './reader.css';
 
     type Props = {
@@ -48,6 +49,7 @@
     let linkEl: HTMLLinkElement | null = null;
 
     onMount(async () => {
+        saveLastIso(iso);
         if (styleUrl) {
             // Swap in this language's CSS bundle. Any previously-injected link with
             // the same id gets removed first so only one language's styles are live.
@@ -67,6 +69,20 @@
             catalog = await fetchCatalog(catalogUrl);
         } catch (e) {
             loadError = e instanceof Error ? e.message : String(e);
+            return;
+        }
+        // Jump straight into the last-remembered position (MAT 1 on first use,
+        // or if the remembered book is missing from this language's catalog).
+        if (catalog) {
+            const available = catalog.documents.map((d) => ({
+                bookCode: d.bookCode,
+                chapters: chapterCount(d)
+            }));
+            const resolved = resolvePosition(loadLastPosition(), available);
+            if (resolved) {
+                const doc = catalog.documents.find((d) => d.bookCode === resolved.book);
+                if (doc) openBookChapter(doc, resolved.chapter);
+            }
         }
     });
 
@@ -94,6 +110,8 @@
         renderError = null;
         popover = null;
         rendering = true;
+        // Persist globally so switching languages resumes at the same reference.
+        saveLastPosition({ book: book.bookCode, chapter: ch });
         try {
             await ensurePkf();
             const sofria = fetchSofria(docSetId, book.bookCode, ch);

@@ -2,22 +2,38 @@
     import '../app.css';
     import { page } from '$app/stores';
     import { displayName } from '$lib/data/languageNames';
-    import { regionsById } from '$lib/data/regions';
+    import { languagesByIso, regionForIso } from '$lib/data/regions';
+    import { requestHomeOverride, forgetLastIso } from '$lib/reader/position';
 
     let { children } = $props();
 
-    // Breadcrumb: only home → reader (when on an ISO page). The region
-    // intermediate is collapsed into a deep-link back to the home accordion.
+    // Logo (header, row 1): show the overview once without forgetting the
+    // user's last language — they can still resume later from `/`.
+    function keepHome() {
+        requestHomeOverride();
+    }
+
+    // Breadcrumb (row 2): clicking either "Mexico" or a region anchor means
+    // the user has chosen to leave the current language — drop the last-iso
+    // memory so the next visit to `/` doesn't auto-redirect back to it.
+    function leaveLanguage() {
+        forgetLastIso();
+    }
+
+    // Breadcrumb: Mexico → (region anchor, optional) → language. URL carries
+    // only the ISO; we look up which region the language belongs to so the
+    // middle crumb can deep-link back to that open panel on the home page.
     type Crumb = { label: string; href: string };
     let crumbs = $derived.by<Crumb[]>(() => {
         const segs = $page.url.pathname.split('/').filter(Boolean);
         const out: Crumb[] = [{ label: 'Mexico', href: '/' }];
-        if (segs[0] === 'r' && segs[1] && segs[2]) {
-            const region = regionsById.get(segs[1]);
+        if (segs.length === 1 && languagesByIso.has(segs[0])) {
+            const iso = segs[0];
+            const region = regionForIso(iso);
             if (region) {
                 out.push({ label: region.displayName, href: `/#${region.id}` });
             }
-            out.push({ label: displayName(segs[2]), href: `/r/${segs[1]}/${segs[2]}` });
+            out.push({ label: displayName(iso), href: `/${iso}` });
         }
         return out;
     });
@@ -29,7 +45,11 @@
         style="background:rgb(0,11,99);border-color:rgba(0,11,99,0.4)"
     >
         <div class="max-w-5xl mx-auto px-4 py-3 flex items-baseline gap-3">
-            <a href="/" class="text-white font-semibold tracking-tight text-lg">
+            <a
+                href="/"
+                onclick={keepHome}
+                class="text-white font-semibold tracking-tight text-lg"
+            >
                 se-regional-pwa
             </a>
             <span class="text-white/60 text-xs">Mexico</span>
@@ -47,6 +67,7 @@
                         {#if i < crumbs.length - 1}
                             <a
                                 href={c.href}
+                                onclick={leaveLanguage}
                                 class="hover:underline"
                                 style="color:rgb(0,11,99)"
                             >

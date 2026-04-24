@@ -49,7 +49,7 @@
 {/if}
 
 {#if data.info}
-    <section class="text-xs text-base-content/60 mt-8 pt-4 border-t border-base-300">
+    <section class="text-xs mt-8 pt-4 border-t" style="color:rgba(0,11,99,0.5);border-color:rgba(0,11,99,0.12)">
         <div>Build version: <span class="font-mono">{data.info.version ?? '?'}</span></div>
         <div>
             Source: <a class="link" href={data.info.source} target="_blank" rel="noreferrer">

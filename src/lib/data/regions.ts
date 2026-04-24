@@ -133,3 +133,11 @@ export const regionsById = new Map<string, Region>(regions.map((r) => [r.id, r])
 export function pkfSizeBytes(iso: string): number {
     return languagesByIso.get(iso)?.pkf_bytes ?? 0;
 }
+
+/** First region that contains this ISO. Returns undefined for an unknown ISO. */
+export function regionForIso(iso: string): Region | undefined {
+    for (const r of regions) {
+        if (r.isos.includes(iso)) return r;
+    }
+    return undefined;
+}

@@ -1,6 +1,9 @@
 <script lang="ts">
     import { onMount } from 'svelte';
+    import { goto } from '$app/navigation';
     import { formatKB } from '$lib/data/pkfInfo';
+    import { loadLastIso, consumeHomeOverride } from '$lib/reader/position';
+    import { languagesByIso } from '$lib/data/regions';
     import LanguageSearch from '$lib/components/LanguageSearch.svelte';
 
     let { data } = $props();
@@ -9,7 +12,19 @@
 
     // One-open-at-a-time: when any <details> opens, close its siblings.
     // Also: honour `#region-id` in the URL to auto-open a region on load.
+    // Plus: if the user has a last-read language, auto-resume there unless
+    // they explicitly asked for the home view (via breadcrumb / logo).
     onMount(() => {
+        const hash = decodeURIComponent(location.hash.replace(/^#/, ''));
+        const override = consumeHomeOverride();
+        if (!hash && !override) {
+            const last = loadLastIso();
+            if (last && languagesByIso.has(last)) {
+                goto(`/${last}`, { replaceState: true });
+                return;
+            }
+        }
+
         if (!container) return;
         const accs = Array.from(container.querySelectorAll<HTMLDetailsElement>('.region-acc'));
 
@@ -18,7 +33,6 @@
         }
         for (const d of accs) d.addEventListener('toggle', () => { if (d.open) closeOthers(d); });
 
-        const hash = decodeURIComponent(location.hash.replace(/^#/, ''));
         if (hash) {
             const match = accs.find((d) => d.dataset.id === hash);
             if (match) {
@@ -75,7 +89,7 @@
                         {#each region.languages as lang (lang.iso)}
                             <li>
                                 <a
-                                    href={`/r/${region.id}/${lang.iso}`}
+                                    href={`/${lang.iso}`}
                                     class="lang-card"
                                 >
                                     <span class="lang-name">{lang.name}</span>
