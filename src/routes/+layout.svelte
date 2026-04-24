@@ -7,6 +7,13 @@
 
     let { children } = $props();
 
+    // Reader pages (/<iso>) have ReaderTopBar as their own top chrome,
+    // so the app-level header + breadcrumb are hidden there.
+    let isReader = $derived.by(() => {
+        const segs = $page.url.pathname.split('/').filter(Boolean);
+        return segs.length === 1 && languagesByIso.has(segs[0]);
+    });
+
     // Logo (header, row 1): show the overview once without forgetting the
     // user's last language — they can still resume later from `/`.
     function keepHome() {
@@ -40,21 +47,22 @@
 </script>
 
 <div class="min-h-screen flex flex-col">
-    <header
-        class="sticky top-0 z-10 border-b"
-        style="background:rgb(0,11,99);border-color:rgba(0,11,99,0.4)"
-    >
-        <div class="max-w-5xl mx-auto px-4 py-3 flex items-baseline gap-3">
-            <a
-                href="/"
-                onclick={keepHome}
-                class="text-white font-semibold tracking-tight text-lg"
-            >
-                se-regional-pwa
-            </a>
-            <span class="text-white/60 text-xs">Mexico</span>
-        </div>
-    </header>
+    {#if !isReader}
+        <header
+            class="sticky top-0 z-10 border-b"
+            style="background:rgb(0,11,99);border-color:rgba(0,11,99,0.4)"
+        >
+            <div class="max-w-5xl mx-auto px-4 py-3 flex items-baseline gap-3">
+                <a
+                    href="/"
+                    onclick={keepHome}
+                    class="text-white font-semibold tracking-tight text-lg"
+                >
+                    Tu Biblia mexicana
+                </a>
+            </div>
+        </header>
+    {/if}
 
     {#if crumbs.length > 1}
         <nav
@@ -83,7 +91,7 @@
         </nav>
     {/if}
 
-    <main class="flex-1 px-4 py-6 sm:py-10 max-w-5xl w-full mx-auto">
+    <main class="flex-1 px-4 pb-6 sm:pb-10 max-w-5xl w-full mx-auto">
         {@render children()}
     </main>
 
@@ -91,9 +99,19 @@
         class="text-xs px-4 py-3 border-t"
         style="color:rgba(0,11,99,0.55);border-color:rgba(0,11,99,0.12);background:rgba(255,255,255,0.4)"
     >
-        <div class="max-w-5xl mx-auto">
-            Data from scriptureearth.org · CC BY-NC-ND 4.0 for included languages (see
-            config/licenses.json).
+        <div class="max-w-5xl mx-auto flex flex-wrap gap-x-4 gap-y-1 items-baseline">
+            <span>
+                Data from scriptureearth.org · CC BY-NC-ND 4.0 for included languages (see
+                config/licenses.json).
+            </span>
+            <a
+                href="/?welcome=1"
+                onclick={keepHome}
+                class="hover:underline"
+                style="color:rgb(0,11,99)"
+            >
+                Ver introducción
+            </a>
         </div>
     </footer>
 </div>

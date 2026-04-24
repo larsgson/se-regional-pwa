@@ -67,6 +67,50 @@ export function consumeHomeOverride(): boolean {
     }
 }
 
+const GREETING_SEEN_KEY = 'bw-greeting-seen';
+
+export function loadGreetingSeen(): boolean {
+    if (!browser) return true; // hide during SSR/prerender to avoid flash
+    try {
+        return localStorage.getItem(GREETING_SEEN_KEY) === '1';
+    } catch {
+        return false;
+    }
+}
+
+export function markGreetingSeen(): void {
+    if (!browser) return;
+    try {
+        localStorage.setItem(GREETING_SEEN_KEY, '1');
+    } catch {
+        /* silent */
+    }
+}
+
+const GREETING_BACK_SHOWN_KEY = 'bw-greeting-back-shown';
+
+/** Whether the "← Ver introducción" hint pill has already been shown once.
+ *  One-shot: the pill appears the very first time a user dismisses the
+ *  greeting, so they know they can return; after that, the footer link is
+ *  the long-term access. */
+export function loadGreetingBackShown(): boolean {
+    if (!browser) return true; // default-hide during SSR
+    try {
+        return localStorage.getItem(GREETING_BACK_SHOWN_KEY) === '1';
+    } catch {
+        return false;
+    }
+}
+
+export function markGreetingBackShown(): void {
+    if (!browser) return;
+    try {
+        localStorage.setItem(GREETING_BACK_SHOWN_KEY, '1');
+    } catch {
+        /* silent */
+    }
+}
+
 /**
  * Global last-read position — book + chapter, shared across ALL languages.
  * Persists to localStorage; consumers should apply a per-catalog fallback

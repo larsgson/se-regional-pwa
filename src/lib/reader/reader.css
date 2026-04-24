@@ -246,7 +246,7 @@
 .reader-topbar {
     background: var(--TitlesColor, #000B63);
     color: white;
-    border-radius: 4px 4px 0 0;
+    border-radius: 0;
     margin: 0 -0.5em 0.4em;
     padding: 0;
     user-select: none;
