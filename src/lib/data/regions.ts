@@ -1,5 +1,11 @@
 import regionsRaw from '../../../config/regions.conf?raw';
 import manifest from '../../../data/pkf/manifest.json';
+import licenses from '../../../config/licenses.json';
+
+// ISOs explicitly excluded from the public data release (non-CC content).
+// Dropped from regions.conf parsing so they don't appear in the UI — neither
+// in the language grid nor in the "listed without data" disclosure.
+const excludedIsos = new Set<string>(Object.keys(licenses.excluded ?? {}));
 
 export type Language = {
     iso: string;
@@ -75,7 +81,7 @@ function parseMexicoRegions(raw: string): Region[] {
                     ...line
                         .split(',')
                         .map((s) => s.trim())
-                        .filter(Boolean)
+                        .filter((s) => s && !excludedIsos.has(s))
                 );
             }
         }

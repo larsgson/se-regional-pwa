@@ -163,6 +163,18 @@ function recreateSymlink() {
     try { rmSync(oldDir, { recursive: true, force: true }); } catch { /* noop */ }
     try { rmSync(tmpTar); } catch { /* noop */ }
 
+    // The in-tarball manifest.json can lag behind the release's per-iso
+    // exclusions (data-repo pack step currently doesn't prune it). The sibling
+    // manifest asset advertised via index.json is the authoritative copy —
+    // overwrite the extracted one with it so the app sees only the included
+    // ISOs.
+    if (index.manifest_asset) {
+        const siblingManifest = join(DATA_DIR, index.manifest_asset);
+        if (existsSync(siblingManifest)) {
+            writeFileSync(join(PKF_DIR, 'manifest.json'), readFileSync(siblingManifest));
+        }
+    }
+
     writeFileSync(TAG_FILE, index.tag + '\n');
     recreateSymlink();
 
