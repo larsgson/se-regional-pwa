@@ -1,6 +1,12 @@
 <script lang="ts">
-    import { onMount, onDestroy } from 'svelte';
+    import { onMount, onDestroy, tick } from 'svelte';
     import { browser } from '$app/environment';
+    import {
+        useSwipe,
+        usePinch,
+        type SwipeCustomEvent,
+        type PinchCustomEvent
+    } from 'svelte-gestures';
     import { fetchCatalog, chapterCount, type Catalog, type CatalogDoc } from './catalog';
     import { loadDocSet, isLoaded } from './store';
     import { fetchSofria, renderSofria, type RenderedChapter, type CaptionMode } from './sofria';
@@ -104,6 +110,8 @@
     }
 
     async function openBookChapter(book: CatalogDoc, ch: number) {
+        // Remember where the user was in the chapter they're leaving.
+        saveScroll();
         currentBook = book;
         currentChapter = ch;
         rendered = null;
@@ -133,6 +141,11 @@
         } finally {
             rendering = false;
         }
+        // After the new chapter is in the DOM, restore prior scroll for this
+        // reference (or jump to top for first visit).
+        await tick();
+        const restored = scrollByChapter.get(chapterKey(book.bookCode, ch));
+        if (browser) window.scrollTo(0, restored ?? 0);
     }
 
     function closeReader() {
@@ -168,42 +181,49 @@
         openBookChapter(currentBook, currentChapter + 1);
     }
 
-    /** Tier 3 — floating popover for footnote / xref callers and glossary
-     *  terms. Positioned via getBoundingClientRect of the anchor element. */
+    /* ---- swipe + pinch on the chapter body --------------------------------
+     * Swipe left / right → next / prev chapter.
+     * Pinch in / out     → bump font size by ±1.
+     */
+    function doSwipe(e: SwipeCustomEvent) {
+        const dir = e.detail.direction;
+        if (dir === 'left') nextChapter();
+        else if (dir === 'right') prevChapter();
+    }
+    let lastPinch = 1;
+    function doPinch(e: PinchCustomEvent) {
+        const scale = e.detail.scale;
+        if (Math.abs(scale - lastPinch) > 0.1) {
+            adjustFontSize(scale > lastPinch ? 1 : -1);
+            lastPinch = scale;
+        }
+    }
+
+    /* ---- saved scroll position per book/chapter --------------------------- */
+    const scrollByChapter = new Map<string, number>();
+    const chapterKey = (b: string, ch: number) => `${b}|${ch}`;
+    function saveScroll() {
+        if (!browser || !currentBook) return;
+        scrollByChapter.set(chapterKey(currentBook.bookCode, currentChapter), window.scrollY);
+    }
+
+    /** Footnote / xref / glossary popover. Rendered as a bottom-pinned stack
+     *  card so it's always reachable on mobile and never obscures the verse
+     *  the user just tapped (the SE/SAB pattern). */
     type Popover =
-        | { kind: 'note' | 'xref'; idx: number; top: number; left: number }
-        | {
-              kind: 'glossary';
-              term: string;
-              definition: string;
-              top: number;
-              left: number;
-          };
+        | { kind: 'note' | 'xref'; idx: number }
+        | { kind: 'glossary'; term: string; definition: string };
     let popover = $state<Popover | null>(null);
     let popoverEl: HTMLDivElement | null = $state(null);
 
-    function anchorPos(anchor: HTMLElement): { top: number; left: number } {
-        const rect = anchor.getBoundingClientRect();
-        const top = rect.bottom + window.scrollY + 6;
-        const left = Math.min(
-            Math.max(rect.left + window.scrollX - 10, 8),
-            window.innerWidth + window.scrollX - 400
-        );
-        return { top, left };
+    function openPopover(kind: 'note' | 'xref', idx: number, _anchor: HTMLElement) {
+        popover = { kind, idx };
     }
-    function openPopover(kind: 'note' | 'xref', idx: number, anchor: HTMLElement) {
-        popover = { kind, idx, ...anchorPos(anchor) };
-    }
-    function openGlossaryPopover(term: string, anchor: HTMLElement) {
+    function openGlossaryPopover(term: string, _anchor: HTMLElement) {
         if (!glossaryLoaded) loadGlossaryOnce();
         const entry = lookupGlossary(glossary, term);
         if (!entry) return; // silent if no glossary entry
-        popover = {
-            kind: 'glossary',
-            term: entry.term,
-            definition: entry.definition,
-            ...anchorPos(anchor)
-        };
+        popover = { kind: 'glossary', term: entry.term, definition: entry.definition };
     }
     function closePopover() {
         popover = null;
@@ -572,40 +592,30 @@
             onSettings={() => (showSettings = !showSettings)}
         />
 
-        <div class="flex items-center gap-2 mb-3">
+        <div class="flex items-center mb-3">
             <button class="btn btn-sm btn-ghost" onclick={closeReader}>← Books</button>
-            <div class="text-sm">
-                <span class="font-mono">{currentBook.bookCode}</span> ·
-                {currentBook.toc2 ?? currentBook.toc ?? currentBook.h ?? ''}
-            </div>
         </div>
 
-        <div class="reader-toolbar">
-            <div class="reader-toolbar-left">
-                <button
-                    class="nav-arrow"
-                    type="button"
-                    onclick={prevChapter}
-                    disabled={currentChapter <= 1}
-                    aria-label="Previous chapter"
-                >
-                    ‹
-                </button>
-                <span class="current">
-                    {currentBook.toc2 ?? currentBook.toc ?? currentBook.bookCode}
-                    {currentChapter}
-                </span>
-                <button
-                    class="nav-arrow"
-                    type="button"
-                    onclick={nextChapter}
-                    disabled={currentChapter >= chapterList.length}
-                    aria-label="Next chapter"
-                >
-                    ›
-                </button>
-            </div>
-        </div>
+        <!-- Floating side arrows: vertically centred on the viewport, hidden on
+             narrow screens (mobile uses swipe). Mirror SAB's reading layout. -->
+        <button
+            type="button"
+            class="reader-side-nav left"
+            class:visible={currentChapter > 1}
+            onclick={prevChapter}
+            aria-label="Previous chapter"
+        >
+            ‹
+        </button>
+        <button
+            type="button"
+            class="reader-side-nav right"
+            class:visible={currentChapter < chapterList.length}
+            onclick={nextChapter}
+            aria-label="Next chapter"
+        >
+            ›
+        </button>
 
         {#if showSettings}
             <SettingsPanel onclose={() => (showSettings = false)} />
@@ -699,24 +709,19 @@
             {/if}
 
             {#if mode === 'text'}
-                {#if audioInline && audioForChapter.length > 0}
-                    <div class="reader-media reader-media-inline">
-                        {#each audioForChapter as a (a.filename)}
-                            {#if a.url}
-                                <AudioPlayer
-                                    src={a.url}
-                                    label={`${a.bookCode ?? ''} ${a.chapter ?? ''}`.trim()}
-                                />
-                            {/if}
-                        {/each}
-                    </div>
-                {/if}
                 <!-- svelte-ignore a11y_click_events_have_key_events -->
                 <!-- svelte-ignore a11y_no_static_element_interactions -->
                 <div
                     class="reader-body"
+                    class:has-bottom-bar={audioInline && audioForChapter.length > 0}
                     onclick={handleBodyClick}
                     onkeydown={handleBodyClick}
+                    {...useSwipe(doSwipe, () => ({
+                        timeframe: 300,
+                        minSwipeDistance: 60,
+                        touchAction: 'pan-y'
+                    }))}
+                    {...usePinch(doPinch)}
                 >
                     {#if rendering}
                         <div class="text-sm text-base-content/60">Loading chapter…</div>
@@ -731,49 +736,46 @@
             {/if}
         </div>
 
+        <!-- Bottom-pinned inline audio bar (toggle via ♪ in the topbar). -->
+        {#if mode === 'text' && audioInline && audioForChapter.length > 0}
+            <div class="reader-audio-bottom">
+                {#each audioForChapter as a (a.filename)}
+                    {#if a.url}
+                        <AudioPlayer
+                            src={a.url}
+                            label={`${a.bookCode ?? ''} ${a.chapter ?? ''}`.trim()}
+                        />
+                    {/if}
+                {/each}
+            </div>
+        {/if}
+
         {#if popover}
-            {#if popover.kind === 'glossary'}
-                <div
-                    class="reader-note-popover"
-                    bind:this={popoverEl}
-                    style={`top:${popover.top}px;left:${popover.left}px`}
-                    role="dialog"
-                    aria-label="Glossary"
-                >
-                    <button
-                        class="close"
-                        type="button"
-                        aria-label="Close"
-                        onclick={closePopover}
-                    >
-                        ×
-                    </button>
+            <div
+                class="reader-note-popover"
+                class:above-audio={audioInline && audioForChapter.length > 0}
+                bind:this={popoverEl}
+                role="dialog"
+                aria-label={popover.kind === 'note'
+                    ? 'Footnote'
+                    : popover.kind === 'xref'
+                      ? 'Cross-reference'
+                      : 'Glossary'}
+            >
+                <button class="close" type="button" aria-label="Close" onclick={closePopover}>
+                    ×
+                </button>
+                {#if popover.kind === 'glossary'}
                     <div class="popover-term">{popover.term}</div>
                     <div class="note-body">{popover.definition}</div>
-                </div>
-            {:else if rendered}
-                {@const pool = popover.kind === 'note' ? rendered.footnotes : rendered.xrefs}
-                {@const entry = pool[popover.idx]}
-                {#if entry}
-                    <div
-                        class="reader-note-popover"
-                        bind:this={popoverEl}
-                        style={`top:${popover.top}px;left:${popover.left}px`}
-                        role="dialog"
-                        aria-label={popover.kind === 'note' ? 'Footnote' : 'Cross-reference'}
-                    >
-                        <button
-                            class="close"
-                            type="button"
-                            aria-label="Close"
-                            onclick={closePopover}
-                        >
-                            ×
-                        </button>
+                {:else if rendered}
+                    {@const pool = popover.kind === 'note' ? rendered.footnotes : rendered.xrefs}
+                    {@const entry = pool[popover.idx]}
+                    {#if entry}
                         <div class="note-body">{@html entry.html}</div>
-                    </div>
+                    {/if}
                 {/if}
-            {/if}
+            </div>
         {/if}
     </section>
 {/if}

@@ -37,6 +37,7 @@
     "dependencies": {
         "fflate": "^0.8.2",
         "hls.js": "^1.6.16",
-        "proskomma-core": "^0.11.3"
+        "proskomma-core": "^0.11.3",
+        "svelte-gestures": "^5.2.2"
     }
 }

@@ -17,6 +17,9 @@ importers:
       proskomma-core:
         specifier: ^0.11.3
         version: 0.11.3(@babel/core@7.29.0)
+      svelte-gestures:
+        specifier: ^5.2.2
+        version: 5.2.2
     devDependencies:
       '@sveltejs/adapter-static':
         specifier: ^3.0.8
@@ -1887,6 +1890,9 @@ packages:
     peerDependencies:
       svelte: ^4.0.0 || ^5.0.0-next.0
       typescript: '>=5.0.0'
+
+  svelte-gestures@5.2.2:
+    resolution: {integrity: sha512-Y+chXPaSx8OsPoFppUwPk8PJzgrZ7xoDJKXeiEc7JBqyKKzXer9hlf8F9O34eFuAWB4/WQEvccACvyBplESL7A==}
 
   svelte@5.55.4:
     resolution: {integrity: sha512-q8DFohk6vUswSng95IZb9nzWJnbINZsK7OiM1snAa3qCjJBL0ZQpvMyAaVXjUukdM75J/m8UE8xwqat8Ors/zQ==}
@@ -4075,6 +4081,8 @@ snapshots:
       typescript: 5.9.3
     transitivePeerDependencies:
       - picomatch
+
+  svelte-gestures@5.2.2: {}
 
   svelte@5.55.4:
     dependencies:

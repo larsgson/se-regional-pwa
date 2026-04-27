@@ -219,26 +219,39 @@
     outline-offset: 1px;
 }
 
-/* Footnote popover — floating card anchored to the caller. */
+/* Footnote / xref / glossary popover — bottom-pinned card (SAB pattern).
+ * Always lands at the foot of the viewport so it never obscures the verse
+ * the user just tapped, and is reachable with the thumb on mobile. */
 .reader-note-popover {
-    position: absolute;
+    position: fixed;
+    left: 50%;
+    bottom: 1.25rem;
+    transform: translateX(-50%);
     z-index: 40;
-    max-width: min(380px, calc(100vw - 24px));
+    width: min(720px, calc(100vw - 24px));
+    max-height: min(48vh, 360px);
+    overflow-y: auto;
     padding: 12px 14px;
-    background: var(--FootnoteBackgroundColor);
-    color: var(--TextColor);
-    border: 1px solid rgb(209 213 219);
-    border-radius: 6px;
-    box-shadow: 0 6px 20px rgba(0, 0, 0, 0.15);
-    font-size: 0.9em;
-    line-height: 1.45;
+    background: var(--FootnoteBackgroundColor, #fff);
+    color: var(--TextColor, #000B63);
+    border: 1px solid rgba(0, 11, 99, 0.18);
+    border-radius: 12px;
+    box-shadow:
+        0 24px 50px -16px rgba(0, 11, 99, 0.4),
+        0 6px 16px -6px rgba(0, 11, 99, 0.18);
+    font-size: 0.95em;
+    line-height: 1.5;
 }
+/* Stack above the audio bar when both are visible. */
+.reader-note-popover.above-audio { bottom: calc(96px + 1.25rem); }
 .reader-note-popover .close {
     float: inline-end;
-    background: transparent; border: 0; font-size: 1.1em;
+    background: transparent; border: 0; font-size: 1.3em;
     line-height: 1; cursor: pointer; color: inherit;
     margin-inline-start: 6px;
+    padding: 0 6px;
 }
+.reader-note-popover .close:hover { color: rgb(0, 11, 99); }
 
 /* App-level top bar — look-alike of SE's action bar, minus the hamburger.
  * Icon buttons on the right control search, share, audio quick-toggle,
@@ -339,39 +352,71 @@
 .reader-root[data-theme="sepia"] .reader-body mark.search-hit { background: #FFE0B2; }
 .reader-root[data-theme="dark"] .reader-body mark.search-hit { background: #FFD54F; color: #000; }
 
-/* Chapter-level toolbar: book + chapter, prev/next arrows, settings gear. */
-.reader-toolbar {
-    display: flex;
+/* Floating chapter-nav arrows — fixed to the viewport sides, vertically
+ * centred. Hidden on narrow screens; on mobile the user swipes the body. */
+.reader-side-nav {
+    position: fixed;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 48px;
+    height: 48px;
+    display: none;
     align-items: center;
-    justify-content: space-between;
-    gap: 0.5em;
-    padding: 0.3em 0;
-    margin-bottom: 0.3em;
-}
-.reader-toolbar .reader-toolbar-left {
-    display: flex;
-    align-items: center;
-    gap: 0.5em;
-}
-.reader-toolbar .current {
+    justify-content: center;
+    background: rgba(255, 255, 255, 0.9);
+    border: 1px solid rgba(0, 11, 99, 0.15);
+    color: rgb(0, 11, 99);
+    border-radius: 999px;
+    font-size: 1.6em;
     font-weight: 600;
-    font-size: 0.95em;
-}
-.reader-toolbar .settings-toggle {
-    padding: 0.25em 0.55em;
-    font-size: 1.05em;
-}
-.reader-toolbar .nav-arrow {
-    background: transparent;
-    border: 1px solid rgb(209 213 219);
-    border-radius: 4px;
-    padding: 0.25em 0.7em;
+    line-height: 1;
     cursor: pointer;
-    font-size: 0.95em;
-    color: inherit;
+    box-shadow:
+        0 8px 22px -10px rgba(0, 11, 99, 0.35),
+        0 2px 6px -2px rgba(0, 11, 99, 0.12);
+    transition: transform 160ms ease, opacity 160ms ease, background 160ms ease;
+    opacity: 0;
+    pointer-events: none;
+    z-index: 35;
 }
-.reader-toolbar .nav-arrow:hover { background: rgb(243 244 246); }
-.reader-toolbar .nav-arrow:disabled { opacity: 0.35; cursor: default; }
+.reader-side-nav.left  { left: 14px; }
+.reader-side-nav.right { right: 14px; }
+.reader-side-nav.visible {
+    opacity: 1;
+    pointer-events: auto;
+}
+.reader-side-nav:hover,
+.reader-side-nav:focus-visible {
+    background: #fff;
+    transform: translateY(-50%) scale(1.05);
+    outline: none;
+}
+.reader-side-nav:active {
+    transform: translateY(-50%) scale(0.97);
+}
+@media (min-width: 768px) {
+    .reader-side-nav { display: inline-flex; }
+}
+
+/* Bottom-pinned audio bar — always reachable, never pushes the text down.
+ * Sits above the page footer; .reader-body adds matching bottom padding when
+ * the bar is on so the last verse doesn't hide behind it. */
+.reader-audio-bottom {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 30;
+    padding: 0.5rem 0.75rem calc(0.5rem + env(safe-area-inset-bottom, 0));
+    background: rgba(255, 255, 255, 0.97);
+    backdrop-filter: blur(10px);
+    border-top: 1px solid rgba(0, 11, 99, 0.12);
+    box-shadow: 0 -10px 30px -12px rgba(0, 11, 99, 0.18);
+}
+.reader-audio-bottom :global(*) { color: rgb(0, 11, 99); }
+.reader-body.has-bottom-bar {
+    padding-bottom: 110px;
+}
 
 /* Format-mode tabs: Text / Audio / Video. */
 .reader-format-tabs {
