@@ -7,6 +7,17 @@
         type SwipeCustomEvent,
         type PinchCustomEvent
     } from 'svelte-gestures';
+    import ChangeIndicator from '$lib/components/ChangeIndicator.svelte';
+
+    /** External document whose change-state is surfaced as a small dot at the
+     *  top of the reader. Currently a single hard-coded URL; later we'll
+     *  parameterise this per-chapter / per-language. */
+    const CHANGE_DOC_URL =
+        'https://pankosmia-web.up.railway.app/burrito/ingredient/raw/_local_/_local_/Tst?ipath=content/01.md';
+    function onChangeIndicatorClick() {
+        // User will wire the actual behaviour later.
+        console.info('[change-indicator] clicked', CHANGE_DOC_URL);
+    }
     import { fetchCatalog, chapterCount, type Catalog, type CatalogDoc } from './catalog';
     import { loadDocSet, isLoaded } from './store';
     import { fetchSofria, renderSofria, type RenderedChapter, type CaptionMode } from './sofria';
@@ -592,8 +603,9 @@
             onSettings={() => (showSettings = !showSettings)}
         />
 
-        <div class="flex items-center mb-3">
+        <div class="flex items-center justify-between mb-3">
             <button class="btn btn-sm btn-ghost" onclick={closeReader}>← Books</button>
+            <ChangeIndicator url={CHANGE_DOC_URL} onclick={onChangeIndicatorClick} />
         </div>
 
         <!-- Floating side arrows: vertically centred on the viewport, hidden on
