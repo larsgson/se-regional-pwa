@@ -22,6 +22,9 @@
     type IndicatorState = 'idle' | 'fresh' | 'changed' | 'error';
     let status = $state<IndicatorState>('idle');
     let lastChecked = $state(0);
+    /** Most recent successful response hash. Used as the new baseline when
+     *  the user clicks to acknowledge a "New content" alert. */
+    let currentHash = $state<string | null>(null);
 
     const KEY = (u: string) => `bw-doc-hash:${u}`;
     let timer: ReturnType<typeof setTimeout> | null = null;
@@ -52,9 +55,13 @@
                 headers,
                 signal: aborter.signal
             });
-            if (!r.ok) { status = 'error'; return; }
+            // 2xx = success, 4xx = deterministic client-side response (e.g. a
+            // "file does not exist yet" reply that will change once the file
+            // appears). Both are valid baselines. 5xx / network errors aren't.
+            if (r.status >= 500) { status = 'error'; return; }
             const text = await r.text();
             const hash = await sha256Hex(text);
+            currentHash = hash;
             const baseline = loadBaseline();
             if (baseline === null) {
                 saveBaseline(hash);
@@ -104,7 +111,7 @@
 
     const tooltip = $derived(
         status === 'changed'
-            ? `Documento actualizado — clic para ver${lastChecked ? ` · ${new Date(lastChecked).toLocaleTimeString()}` : ''}`
+            ? `Documento actualizado — clic para marcar como visto${lastChecked ? ` · ${new Date(lastChecked).toLocaleTimeString()}` : ''}`
             : status === 'fresh'
               ? `Sin cambios${lastChecked ? ` · ${new Date(lastChecked).toLocaleTimeString()}` : ''}`
               : status === 'error'
@@ -112,8 +119,16 @@
                 : 'Comprobando…'
     );
 
+    const label = $derived(
+        status === 'changed' ? 'New content' : status === 'error' ? 'Error' : ''
+    );
+
     function handleClick() {
         if (status !== 'changed') return;
+        // Acknowledge: re-baseline against the response we just saw, so the
+        // dot only goes green again on the NEXT distinct change.
+        if (currentHash) saveBaseline(currentHash);
+        status = 'fresh';
         onclick?.();
     }
 </script>
@@ -131,60 +146,79 @@
     title={tooltip}
 >
     <span class="dot" aria-hidden="true"></span>
+    {#if label}
+        <span class="label">{label}</span>
+    {/if}
 </button>
 
 <style>
     .change-indicator {
         display: inline-flex;
         align-items: center;
-        justify-content: center;
-        width: 28px;
-        height: 28px;
-        padding: 0;
+        gap: 0.55rem;
+        min-height: 36px;
+        padding: 0 0.55rem;
         border: 0;
         background: transparent;
         cursor: default;
         border-radius: 999px;
-        transition: background 160ms ease;
+        font-size: 0.85rem;
+        font-weight: 600;
+        letter-spacing: 0.01em;
+        color: rgba(0, 11, 99, 0.55);
+        transition: background 160ms ease, color 160ms ease;
     }
     .change-indicator:not(:disabled) { cursor: pointer; }
-    .change-indicator:not(:disabled):hover {
-        background: rgba(34, 197, 94, 0.12);
-    }
     .change-indicator:focus-visible {
         outline: 2px solid rgb(0, 11, 99);
         outline-offset: 2px;
     }
 
     .dot {
-        width: 10px;
-        height: 10px;
+        width: 14px;
+        height: 14px;
         border-radius: 999px;
         background: rgba(0, 11, 99, 0.3);
         box-shadow: 0 0 0 2px rgba(0, 11, 99, 0.06);
         transition: background 200ms ease, box-shadow 220ms ease, transform 200ms ease;
+        flex-shrink: 0;
     }
-    .status-fresh .dot {
-        background: rgba(0, 11, 99, 0.3);
+    .label { white-space: nowrap; }
+
+    /* Idle / fresh: bare gray dot, no text. */
+    .status-idle,
+    .status-fresh { background: transparent; }
+
+    /* Error: amber pill with text. */
+    .status-error {
+        color: rgb(146 64 14);
+        background: rgba(217, 119, 6, 0.12);
     }
     .status-error .dot {
         background: rgb(217 119 6);
         box-shadow: 0 0 0 2px rgba(217, 119, 6, 0.18);
     }
+
+    /* Changed: green pill, clickable, gentle pulse. */
+    .status-changed {
+        color: rgb(21 128 61);
+        background: rgba(34, 197, 94, 0.14);
+    }
     .status-changed .dot {
         background: rgb(34, 197, 94);
         box-shadow:
-            0 0 0 3px rgba(34, 197, 94, 0.22),
+            0 0 0 3px rgba(34, 197, 94, 0.25),
             0 4px 10px -2px rgba(34, 197, 94, 0.45);
         animation: pulse 1.6s ease-in-out infinite;
     }
-    .change-indicator:not(:disabled):hover .dot {
-        transform: scale(1.15);
+    .change-indicator.status-changed:hover {
+        background: rgba(34, 197, 94, 0.22);
     }
+    .change-indicator.status-changed:hover .dot { transform: scale(1.1); }
 
     @keyframes pulse {
-        0%, 100% { box-shadow: 0 0 0 3px rgba(34, 197, 94, 0.22), 0 4px 10px -2px rgba(34, 197, 94, 0.45); }
-        50%      { box-shadow: 0 0 0 8px rgba(34, 197, 94, 0),    0 4px 10px -2px rgba(34, 197, 94, 0.4); }
+        0%, 100% { box-shadow: 0 0 0 3px rgba(34, 197, 94, 0.25), 0 4px 10px -2px rgba(34, 197, 94, 0.45); }
+        50%      { box-shadow: 0 0 0 9px rgba(34, 197, 94, 0),    0 4px 10px -2px rgba(34, 197, 94, 0.4); }
     }
     @media (prefers-reduced-motion: reduce) {
         .status-changed .dot { animation: none; }
