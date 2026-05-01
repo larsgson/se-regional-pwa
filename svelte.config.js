@@ -9,7 +9,11 @@ export default {
             pages: 'build',
             assets: 'build',
             precompress: false,
-            strict: true
+            strict: true,
+            // SPA fallback for the CSR-only story routes (/<iso>/stories/...).
+            // Netlify needs this so any non-prerendered URL hydrates the app
+            // and lets client-side routing take over.
+            fallback: '200.html'
         })
     }
 };

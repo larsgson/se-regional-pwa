@@ -17,7 +17,8 @@
     import ReaderTopBar from './ReaderTopBar.svelte';
     import { getProskomma } from './store';
     import { loadGlossary, lookup as lookupGlossary, type Glossary } from './glossary';
-    import { loadLastPosition, saveLastPosition, resolvePosition, saveLastIso } from './position';
+    import { saveLastPosition, saveLastIso } from './position';
+    import StoriesGrid from '$lib/components/StoriesGrid.svelte';
     import './reader.css';
 
     type Props = {
@@ -77,19 +78,10 @@
             loadError = e instanceof Error ? e.message : String(e);
             return;
         }
-        // Jump straight into the last-remembered position (MAT 1 on first use,
-        // or if the remembered book is missing from this language's catalog).
-        if (catalog) {
-            const available = catalog.documents.map((d) => ({
-                bookCode: d.bookCode,
-                chapters: chapterCount(d)
-            }));
-            const resolved = resolvePosition(loadLastPosition(), available);
-            if (resolved) {
-                const doc = catalog.documents.find((d) => d.bookCode === resolved.book);
-                if (doc) openBookChapter(doc, resolved.chapter);
-            }
-        }
+        // Initial view is the picker (Stories + Books grids) — no auto-open.
+        // The "global last-position memory" still drives in-chapter navigation
+        // and prev/next, but the user always lands on the picker first so they
+        // can choose a story or a book chapter.
     });
 
     onDestroy(() => {
@@ -548,9 +540,10 @@
 {:else if !catalog}
     <div class="text-sm text-base-content/60">Loading catalog…</div>
 {:else if !currentBook}
+    <StoriesGrid {iso} />
     <section>
         <h2 class="text-sm font-semibold uppercase tracking-wide text-base-content/60 mb-2">
-            Books ({catalog.documents.length})
+            Bible Books ({catalog.documents.length})
         </h2>
         <ul class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2">
             {#each catalog.documents as doc (doc.id)}
