@@ -4,6 +4,12 @@
     import { displayName } from '$lib/data/languageNames';
     import { languagesByIso, regionForIso } from '$lib/data/regions';
     import { requestHomeOverride, forgetLastIso } from '$lib/reader/position';
+    import ChangeIndicator from '$lib/components/ChangeIndicator.svelte';
+    import {
+        CHANGE_DOC_URL,
+        CHANGE_DOC_SSE_URL,
+        onChangeIndicatorClick
+    } from '$lib/data/changeIndicator';
 
     let { children } = $props();
 
@@ -52,7 +58,9 @@
             class="sticky top-0 z-10 border-b"
             style="background:rgb(0,11,99);border-color:rgba(0,11,99,0.4)"
         >
-            <div class="max-w-5xl mx-auto px-4 py-3 flex items-baseline gap-3">
+            <div
+                class="max-w-5xl mx-auto px-4 py-3 flex items-center justify-between gap-3"
+            >
                 <a
                     href="/"
                     onclick={keepHome}
@@ -60,6 +68,14 @@
                 >
                     Tu Biblia mexicana
                 </a>
+                <div class="layout-indicator">
+                    <ChangeIndicator
+                        url={CHANGE_DOC_URL}
+                        sseUrl={CHANGE_DOC_SSE_URL}
+                        onclick={onChangeIndicatorClick}
+                        solid
+                    />
+                </div>
             </div>
         </header>
     {/if}
@@ -69,25 +85,34 @@
             class="text-sm border-b"
             style="color:rgba(0,11,99,0.7);background:rgba(255,255,255,0.5);border-color:rgba(0,11,99,0.1)"
         >
-            <ol class="max-w-5xl mx-auto px-4 py-2 flex flex-wrap items-center gap-1.5">
-                {#each crumbs as c, i (c.href + i)}
-                    <li class="flex items-center gap-1.5">
-                        {#if i < crumbs.length - 1}
-                            <a
-                                href={c.href}
-                                onclick={leaveLanguage}
-                                class="hover:underline"
-                                style="color:rgb(0,11,99)"
-                            >
-                                {c.label}
-                            </a>
-                            <span aria-hidden="true" style="color:rgba(0,11,99,0.35)">›</span>
-                        {:else}
-                            <span style="color:rgba(0,11,99,0.65)">{c.label}</span>
-                        {/if}
-                    </li>
-                {/each}
-            </ol>
+            <div
+                class="max-w-5xl mx-auto px-4 py-1.5 flex items-center justify-between gap-3"
+            >
+                <ol class="flex flex-wrap items-center gap-1.5 min-w-0">
+                    {#each crumbs as c, i (c.href + i)}
+                        <li class="flex items-center gap-1.5">
+                            {#if i < crumbs.length - 1}
+                                <a
+                                    href={c.href}
+                                    onclick={leaveLanguage}
+                                    class="hover:underline"
+                                    style="color:rgb(0,11,99)"
+                                >
+                                    {c.label}
+                                </a>
+                                <span aria-hidden="true" style="color:rgba(0,11,99,0.35)">›</span>
+                            {:else}
+                                <span style="color:rgba(0,11,99,0.65)">{c.label}</span>
+                            {/if}
+                        </li>
+                    {/each}
+                </ol>
+                <ChangeIndicator
+                    url={CHANGE_DOC_URL}
+                    sseUrl={CHANGE_DOC_SSE_URL}
+                    onclick={onChangeIndicatorClick}
+                />
+            </div>
         </nav>
     {/if}
 
@@ -115,3 +140,12 @@
         </div>
     </footer>
 </div>
+
+<style>
+    /* Keep the gray dot legible against the dark navy top bar. */
+    :global(.layout-indicator .change-indicator.status-fresh .dot),
+    :global(.layout-indicator .change-indicator.status-idle .dot) {
+        background: rgba(255, 255, 255, 0.6);
+        box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.18);
+    }
+</style>
