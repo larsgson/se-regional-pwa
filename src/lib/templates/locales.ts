@@ -7,7 +7,7 @@ import type { LocaleMap } from './types';
  * Lazy fetching would just add a network round-trip per template.
  */
 const localeFiles = import.meta.glob<string>(
-    '/static/templates/*/locales/*.toml',
+    './content/*/locales/*.toml',
     { query: '?raw', import: 'default', eager: true }
 );
 
@@ -40,7 +40,7 @@ export function loadLocale(template: string, lang: string): LocaleMap {
 
     const candidates = [lang, 'spa', 'eng'];
     for (const code of candidates) {
-        const path = `/static/templates/${template}/locales/${code}.toml`;
+        const path = `./content/${template}/locales/${code}.toml`;
         const raw = localeFiles[path];
         if (!raw) continue;
         try {
@@ -60,7 +60,7 @@ export function loadLocale(template: string, lang: string): LocaleMap {
 /** List of locale codes available for a template. */
 export function availableLocales(template: string): string[] {
     const out: string[] = [];
-    const prefix = `/static/templates/${template}/locales/`;
+    const prefix = `./content/${template}/locales/`;
     for (const path of Object.keys(localeFiles)) {
         if (!path.startsWith(prefix)) continue;
         const code = path.slice(prefix.length).replace(/\.toml$/, '');

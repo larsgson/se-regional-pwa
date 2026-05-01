@@ -13,11 +13,11 @@ import type {
  * Story markdown is loaded lazily (one file per opened story).
  */
 const tomlFiles = import.meta.glob<string>(
-    '/static/templates/*/**/index.toml',
+    './content/*/**/index.toml',
     { query: '?raw', import: 'default', eager: true }
 );
 const mdFiles = import.meta.glob<string>(
-    '/static/templates/*/**/*.md',
+    './content/*/**/*.md',
     { query: '?raw', import: 'default', eager: false }
 );
 
@@ -32,11 +32,11 @@ function loadToml<T>(path: string): T | null {
 }
 
 export function templateRoot(template: TemplateName): TemplateIndex | null {
-    return loadToml<TemplateIndex>(`/static/templates/${template}/index.toml`);
+    return loadToml<TemplateIndex>(`./content/${template}/index.toml`);
 }
 
 export function categoryRoot(template: TemplateName, categoryId: string): CategoryIndex | null {
-    return loadToml<CategoryIndex>(`/static/templates/${template}/${categoryId}/index.toml`);
+    return loadToml<CategoryIndex>(`./content/${template}/${categoryId}/index.toml`);
 }
 
 /** Resolve the list of category IDs for a template, regardless of whether
@@ -90,7 +90,7 @@ export async function loadStoryMarkdown(
     categoryId: string,
     storyId: string
 ): Promise<string | null> {
-    const path = `/static/templates/${template}/${categoryId}/${storyId}.md`;
+    const path = `./content/${template}/${categoryId}/${storyId}.md`;
     const loader = mdFiles[path];
     if (!loader) return null;
     try {
