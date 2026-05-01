@@ -1,7 +1,8 @@
 <script lang="ts">
     import { onMount } from 'svelte';
     import type { TemplateName, Section, VerseEntry, ImageConfig } from '$lib/templates/types';
-    import { loadStoryMarkdown, imageConfigFor } from '$lib/templates/templateManifest';
+    import { loadStoryMarkdown, imageConfigFor, canonFor } from '$lib/templates/templateManifest';
+    import { editedContentVersion, getEditedObsMap } from '$lib/data/editedContent';
     import { loadLocale } from '$lib/templates/locales';
     import { parseStoryMarkdown } from '$lib/templates/markdownParser';
     import { parseReference, splitReference } from '$lib/templates/refs';
@@ -37,14 +38,54 @@
     }: Props = $props();
 
     let title = $state('');
-    let sections = $state<Section[]>([]);
+    let baseSections = $state<Section[]>([]);
     let imageConfig: ImageConfig | null = $state(null);
     let cues = $state<AudioCue[]>([]);
     let currentCueIdx = $state<number | null>(null);
     let loadError = $state<string | null>(null);
     let loading = $state(true);
+    /** Pankosmia-edited overlay: image-filename → text. Re-fetched whenever
+     *  the global `editedContentVersion` bumps (driven by green-indicator
+     *  clicks), but only used for OBS OT-canon stories where the local pkf
+     *  has no verse text. */
+    let editedMap = $state<Map<string, string>>(new Map());
 
     const audioIndex = $derived(buildAudioIndex(media));
+
+    const isOtObs = $derived(template === 'OBS' && canonFor(template, categoryId) === 'ot');
+
+    /** Visible sections — base text from the local pkf, with edited-content
+     *  overlay applied to any sections that have empty text on OT OBS. */
+    const sections = $derived.by(() => {
+        if (!isOtObs || editedMap.size === 0) return baseSections;
+        return baseSections.map((s) => {
+            if (s.text?.trim()) return s;
+            for (const url of s.imageUrls) {
+                const filename = url.split('/').pop() ?? url;
+                const override = editedMap.get(filename);
+                if (override) return { ...s, text: override };
+            }
+            return s;
+        });
+    });
+
+    // Subscribe to edited-content bumps. Each bump re-fetches + re-parses.
+    $effect(() => {
+        // Read the version inside the effect so Svelte tracks it.
+        const _v = $editedContentVersion;
+        void _v;
+        if (!isOtObs) {
+            editedMap = new Map();
+            return;
+        }
+        let cancelled = false;
+        getEditedObsMap().then((map) => {
+            if (!cancelled) editedMap = map;
+        });
+        return () => {
+            cancelled = true;
+        };
+    });
 
     async function build() {
         loading = true;
@@ -90,7 +131,7 @@
             //    get resolved to actual verse text.
             const parsed = parseStoryMarkdown(md, chapterText, localeMap, fallbackMap);
             title = parsed.title;
-            sections = parsed.sections;
+            baseSections = parsed.sections;
 
             // 4. Build audio cues — one per section that has a reference AND
             //    valid audio + timing for at least one of its verses.

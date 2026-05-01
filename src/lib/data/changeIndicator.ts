@@ -23,6 +23,8 @@ export const CHANGE_DOC_URL =
 export const CHANGE_DOC_SSE_URL: string | undefined = CHANGE_DOC_URL;
 
 export function onChangeIndicatorClick(): void {
-    // User will wire the actual behaviour later.
-    console.info('[change-indicator] clicked', CHANGE_DOC_URL);
+    // Each click forces every open StoryReader to re-fetch + re-parse the
+    // edited content so OBS OT-story sections without local verse text pick
+    // up the freshly-edited overlay.
+    void import('./editedContent').then((m) => m.bumpEditedContent());
 }

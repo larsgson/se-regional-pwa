@@ -13,11 +13,11 @@ import type {
  * Story markdown is loaded lazily (one file per opened story).
  */
 const tomlFiles = import.meta.glob<string>(
-    './content/*/**/index.toml',
+    ['./content/*/index.toml', './content/*/*/index.toml'],
     { query: '?raw', import: 'default', eager: true }
 );
 const mdFiles = import.meta.glob<string>(
-    './content/*/**/*.md',
+    ['./content/*/*/*.md', './content/*/*/*/*.md'],
     { query: '?raw', import: 'default', eager: false }
 );
 
@@ -40,14 +40,20 @@ export function categoryRoot(template: TemplateName, categoryId: string): Catego
 }
 
 /** Resolve the list of category IDs for a template, regardless of whether
- *  the index uses `categories = ["01", …]` or `[[categories]]` arrays. */
+ *  the index uses `categories = ["01", …]` or `[[categories]]` arrays.
+ *  Also accepts the OBS quirk where `categories` is parsed under [images]
+ *  because the array sits inside that TOML table without an explicit reset. */
 export function categoryIdsFor(template: TemplateName): string[] {
     const idx = templateRoot(template);
-    if (!idx?.categories) return [];
-    if (Array.isArray(idx.categories) && typeof idx.categories[0] === 'string') {
-        return idx.categories as string[];
+    if (!idx) return [];
+    const raw =
+        idx.categories ??
+        (idx as unknown as { images?: { categories?: unknown } }).images?.categories;
+    if (!raw) return [];
+    if (Array.isArray(raw) && typeof raw[0] === 'string') {
+        return raw as string[];
     }
-    return (idx.categories as { id: string }[]).map((c) => c.id);
+    return (raw as { id: string }[]).map((c) => c.id);
 }
 
 export function categoryDefFor(
@@ -56,13 +62,14 @@ export function categoryDefFor(
 ): { id: string; image: string } | null {
     const idx = templateRoot(template);
     if (!idx) return null;
-    if (Array.isArray(idx.categories) && typeof idx.categories[0] === 'object') {
-        const def = (idx.categories as { id: string; image: string }[]).find(
-            (c) => c.id === categoryId
-        );
+    const raw =
+        idx.categories ??
+        (idx as unknown as { images?: { categories?: unknown } }).images?.categories;
+    if (Array.isArray(raw) && raw.length > 0 && typeof raw[0] === 'object') {
+        const def = (raw as { id: string; image: string }[]).find((c) => c.id === categoryId);
         return def ?? null;
     }
-    // OBS-style: category image is at <cat>/index.toml's [image].filename.
+    // OBS-style (string-id list): category image is at <cat>/index.toml's [image].filename.
     const cat = categoryRoot(template, categoryId);
     if (!cat) return null;
     return { id: categoryId, image: cat.image?.filename ?? '' };

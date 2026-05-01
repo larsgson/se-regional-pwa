@@ -4,7 +4,8 @@
         templateRoot,
         imageConfigFor,
         categoryIdsFor,
-        categoryDefFor
+        categoryDefFor,
+        storiesFor
     } from '$lib/templates/templateManifest';
     import { loadLocale, localeLookup } from '$lib/templates/locales';
     import { resolveImageUrl, resolveThumbUrl } from '$lib/templates/imageUrl';
@@ -24,15 +25,25 @@
         const root = templateRoot(name);
         if (!root) return '';
         const cfg = imageConfigFor(name);
-        // Prefer the explicit [image].filename from the template's index.toml.
+        // 1. Explicit [image].filename from the template root.
         if (root.image?.filename) return resolveImageUrl(root.image.filename, cfg);
-        // Fallback: first category's first image.
         const ids = categoryIdsFor(name);
         const firstId = ids[0];
         if (!firstId) return '';
+        // 2. First category's image — but only if it's clearly a story-style
+        //    JPEG (some templates point this at an icon PNG that isn't on the
+        //    image CDN, e.g. OBS's "000-01.png").
         const def = categoryDefFor(name, firstId);
-        if (!def?.image) return '';
-        return resolveThumbUrl(def.image, cfg);
+        if (def?.image && /\.jpe?g$/i.test(def.image)) {
+            return resolveImageUrl(def.image, cfg);
+        }
+        // 3. First story image of the first category — always on the CDN
+        //    because it's the same image used in the chapter grid.
+        const first = storiesFor(name, firstId)[0];
+        if (first?.image) return resolveImageUrl(first.image, cfg);
+        // 4. Final fallback: the category image (even if it's an icon PNG).
+        if (def?.image) return resolveImageUrl(def.image, cfg);
+        return '';
     }
 
     const cards = $derived.by<Card[]>(() => {

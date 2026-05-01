@@ -102,11 +102,48 @@
             {@const def = categoryDefFor(template, catId)}
             {@const stories = storiesFor(template, catId)}
             {@const isOpen = openCatId === catId}
-            {@const thumb = def?.image ? resolveThumbUrl(def.image, cfg) : ''}
+            <!-- Category icon files are often missing from the CDN (OBS's
+                 `000-N.png`, TGS's `Bible_OT/NT.png`). Prefer the first story
+                 image, which is guaranteed to exist because it's the same
+                 file used in the chapter grid below. -->
+            {@const fallbackImg = stories[0]?.image ?? ''}
+            {@const primaryImg = def?.image ?? ''}
+            {@const useStoryThumb = primaryImg && !/^\d{2}/.test(primaryImg)}
+            {@const thumb = useStoryThumb && fallbackImg
+                ? resolveThumbUrl(fallbackImg, cfg)
+                : primaryImg
+                  ? resolveThumbUrl(primaryImg, cfg)
+                  : fallbackImg
+                    ? resolveThumbUrl(fallbackImg, cfg)
+                    : ''}
             <div class="acc-item" class:open={isOpen}>
                 <button class="acc-header" type="button" onclick={() => toggle(catId)}>
                     {#if thumb}
-                        <img class="acc-thumb" src={thumb} alt="" loading="lazy" />
+                        <img
+                            class="acc-thumb"
+                            src={thumb}
+                            alt=""
+                            loading="lazy"
+                            onerror={(e) => {
+                                // Final safety net: swap to story-image fallback;
+                                // if that also fails, hide so the placeholder beneath shows.
+                                const img = e.currentTarget as HTMLImageElement;
+                                const tried = img.dataset.fallbackTried === '1';
+                                if (!tried && fallbackImg) {
+                                    img.dataset.fallbackTried = '1';
+                                    img.src = resolveThumbUrl(fallbackImg, cfg);
+                                } else {
+                                    img.style.display = 'none';
+                                    const placeholder = img.nextElementSibling as HTMLElement | null;
+                                    if (placeholder) placeholder.style.display = 'grid';
+                                }
+                            }}
+                        />
+                        <div
+                            class="acc-thumb acc-thumb-placeholder"
+                            aria-hidden="true"
+                            style="display:none"
+                        >📖</div>
                     {:else}
                         <div class="acc-thumb acc-thumb-placeholder" aria-hidden="true">📖</div>
                     {/if}
